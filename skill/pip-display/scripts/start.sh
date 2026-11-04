@@ -18,7 +18,7 @@ fail() { # fail <stage> <hint>
 WANT=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
 HAVE=$(adbx shell "dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//'" | tr -d '\r ')
 if ! adbx shell "[ -f $DEV/server.jar ] && echo ok" | grep -q ok || [ "$HAVE" != "$WANT" ]; then
-  sh "$SK_DIR/scripts/install.sh" >/dev/null 2>&1 || fail install "install.sh 失败：检查 adb 授权与磁盘空间"
+  IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1) || { sleep 2; IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1); } || fail install "安装失败（已自动重试一次）：$(echo "$IR" | tr '\n"' '  ' | cut -c1-200)"
 fi
 adbx push "$SK_DIR/scripts/device-run.sh" $DEV/run.sh >/dev/null; adbx shell "chmod 755 $DEV/run.sh"
 
