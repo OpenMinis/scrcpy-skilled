@@ -1,0 +1,8 @@
+build/
+out/
+*.apk
+*.dex
+*.jks
+*.idsig
+.gradle/
+local.properties
