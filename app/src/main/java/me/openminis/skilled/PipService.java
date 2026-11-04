@@ -6,12 +6,15 @@ import android.graphics.PixelFormat;
 import android.os.IBinder;
 import android.util.Log;
 import android.view.*;
+import java.util.Map;
 
 /** 主屏悬浮小窗：SurfaceView 显示 scrcpy 虚拟屏的 H.264 流，触摸经控制通道回传。 */
 public class PipService extends Service implements SurfaceHolder.Callback, ScrcpyClient.Listener {
     static final String T = "SKILLED";
     WindowManager wm; SurfaceView sv; volatile ScrcpyClient client; AgentServer agent; int port = 27183;
     volatile int vw = 540, vh = 960;
+    volatile boolean hidden; int winX = 20, winY = 300, winWdp = 200;
+    WindowManager.LayoutParams lp;
 
 
     @Override public IBinder onBind(Intent i) { return null; }
@@ -35,17 +38,32 @@ public class PipService extends Service implements SurfaceHolder.Callback, Scrcp
             client.touch(a, -2L /* POINTER_ID_GENERIC_FINGER */, x, y, vw, vh, a == 1 ? 0f : 1f);
             return true;
         });
-        int w = Math.round(getResources().getDisplayMetrics().density * 200);
+        if (i != null) { winX = i.getIntExtra("x", winX); winY = i.getIntExtra("y", winY); winWdp = i.getIntExtra("w", winWdp); }
+        int w = Math.round(getResources().getDisplayMetrics().density * winWdp);
         int h = w * 16 / 9;
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(w, h,
+        lp = new WindowManager.LayoutParams(w, h,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.TOP | Gravity.LEFT; lp.x = 20; lp.y = 300;
+        lp.gravity = Gravity.TOP | Gravity.LEFT; lp.x = winX; lp.y = winY;
         wm.addView(sv, lp);
         agent = new AgentServer(this); agent.start();
         Log.i(T, "overlay added, port=" + port);
         return START_STICKY;
+    }
+
+    /** 主线程调用：按 x/y(px) w(dp) 调整窗口；hide=1 移出屏幕并设为不可触摸。 */
+    void applyWindow(Map<String, String> m) {
+        if (lp == null || sv == null) return;
+        if (m.containsKey("x")) winX = Integer.parseInt(m.get("x"));
+        if (m.containsKey("y")) winY = Integer.parseInt(m.get("y"));
+        if (m.containsKey("w")) winWdp = Integer.parseInt(m.get("w"));
+        if (m.containsKey("hide")) hidden = "1".equals(m.get("hide"));
+        int w = Math.round(getResources().getDisplayMetrics().density * winWdp);
+        lp.width = w; lp.height = w * vh / Math.max(1, vw);
+        lp.x = hidden ? -lp.width - 50 : winX; lp.y = winY;
+        if (hidden) lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; else lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        wm.updateViewLayout(sv, lp);
     }
 
     @Override public void surfaceCreated(SurfaceHolder h) {

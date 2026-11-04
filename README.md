@@ -19,6 +19,7 @@
 | `app/` | 悬浮窗 APK（待从 PoC 迁入） |
 | `shell/` | shell 身份服务（待从 PoC 迁入） |
 | `scripts/` | 构建、部署、`adb-safe.sh`（带超时自愈的 adb 包装） |
+| `skill/pip-display` | 可分发的 Minis skill（含 APK、jar、脚本、SKILL.md）；产物由 scripts/ 构建后拷入 assets/ |
 | `docs/` | 设计与实验记录，见 `docs/NOTES.md` |
 | `experiments/` | 已验证的 PoC 原始代码（overlay-exp：shell 图层浮窗；pip-exp：虚拟屏+小窗+接管） |
 

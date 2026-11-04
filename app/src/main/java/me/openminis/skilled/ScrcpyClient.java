@@ -130,7 +130,16 @@ public class ScrcpyClient {
         catch (Throwable e) { Log.e(T, "startApp send " + e); }
     }
 
-    public void text(String t) { tx.execute(() -> text0(t)); }
+    /** ASCII 走 INJECT_TEXT；含非 ASCII（中文等）走 SET_CLIPBOARD + paste，因为 INJECT_TEXT 只能注入键盘字符。 */
+    public void text(String t) {
+        boolean ascii = true; for (int i = 0; i < t.length(); i++) if (t.charAt(i) > 126 || t.charAt(i) < 32) { ascii = false; break; }
+        final boolean a = ascii;
+        tx.execute(() -> { if (a) text0(t); else paste0(t); });
+    }
+    synchronized void paste0(String s) {
+        try { byte[] b = s.getBytes("UTF-8"); ctl.writeByte(9); ctl.writeLong(0L); ctl.writeByte(1); ctl.writeInt(b.length); ctl.write(b); ctl.flush(); }
+        catch (Throwable e) { Log.e(T, "paste send " + e); }
+    }
     synchronized void text0(String s) {
         try { byte[] b = s.getBytes("UTF-8"); ctl.writeByte(1); ctl.writeInt(b.length); ctl.write(b); ctl.flush(); }
         catch (Throwable e) { Log.e(T, "text send " + e); }

@@ -86,6 +86,7 @@ public class AgentServer {
             return;
         }
         if (path.equals("/screenshot")) { screenshot(out); return; }
+        if (path.equals("/window")) { window(m, out); return; }
         if (cl == null || !cl.running) { json(out, 503, "{\"ok\":false,\"error\":\"not connected\"}"); return; }
         if (humanActive() && !"1".equals(m.get("force"))) {
             json(out, 423, "{\"ok\":false,\"error\":\"human has control\",\"humanActive\":true}"); return;
@@ -109,6 +110,18 @@ public class AgentServer {
             default: json(out, 404, "{\"ok\":false,\"error\":\"unknown path\"}"); return;
         }
         json(out, 200, "{\"ok\":true}");
+    }
+
+    /** /window?x=&y=&w=<dp>  移动/缩放小窗；/window?hide=1 移出屏幕且不可触摸（Surface 保持存活，agent 可继续操作和截图）；hide=0 恢复。 */
+    void window(Map<String, String> m, OutputStream out) throws Exception {
+        final PipService p = svc;
+        final CountDownLatch done = new CountDownLatch(1);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try { p.applyWindow(m); } catch (Throwable e) { Log.e(T, "window " + e); }
+            done.countDown();
+        });
+        done.await(2, TimeUnit.SECONDS);
+        json(out, 200, "{\"ok\":true,\"hidden\":" + p.hidden + "}");
     }
 
     void screenshot(OutputStream out) throws Exception {
