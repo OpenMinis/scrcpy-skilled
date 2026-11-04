@@ -19,3 +19,13 @@ app_process 里用 `SurfaceControl.Builder` + `Transaction.setLayer(INT_MAX)` �
 
 ## 待做
 Srv 本机自拉起（无线调试自连/Shizuku）、读屏取帧（ImageReader）、小窗拖动缩放、多点触控、文字输入、锁屏表现、正式工程化（gradle）。
+
+## 方案 1（H.264，scrcpy server jar 零改动）已验证 — 2026-11-04
+链路：scrcpy server(`new_display`, trusted 虚拟屏 + 系统装饰) → `@scrcpy_00001234` → **Bridge**(shell 身份, TCP 桥) → 127.0.0.1:27183 → APK `ScrcpyClient` → `MediaCodec` 解码到悬浮窗 SurfaceView；触摸经控制通道(ControlMessage type 2) 回传。
+验证：小窗里计算器出画面；真手指依次点 7、5、5，显示 755。截图 `docs/plan1-poc.png`。
+- 关键验证：普通 APK 连 shell 进程的 abstract socket → `Permission denied`（SELinux），所以必须 TCP 桥。
+- 桥顺序：scrcpy 在 tunnel_forward 下按 video、control 顺序 accept，桥与客户端必须同序连接。
+- 控制消息要在非主线程写 socket（NetworkOnMainThreadException）。
+- `/data/local/tmp` 根目录的 jar 会消失，放 `/data/local/tmp/sc/`。
+- 构建：`scripts/build-scrcpy-server.sh`、`scripts/build-apk.sh`；一键部署：`scripts/restart-all.sh`。
+- 未做：start_app 走控制通道（现用 am start --display）、小窗拖动缩放、文字输入、agent 接口、本机自拉起、桥的多会话/重连。
