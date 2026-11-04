@@ -33,12 +33,19 @@ public class AgentServer {
     final PipService svc;
     volatile boolean manualTakeover;
     volatile long lastHumanTouch;
+    volatile long lastAgentAction;
     ServerSocket ss; volatile boolean running;
 
     AgentServer(PipService s) { svc = s; }
 
     boolean humanActive() { return manualTakeover || System.currentTimeMillis() - lastHumanTouch < HUMAN_IDLE_MS; }
     void humanTouched() { lastHumanTouch = System.currentTimeMillis(); }
+    void setTakeover(boolean on) { manualTakeover = on; if (!on) lastHumanTouch = 0; }
+    /** 0 AI 待命，1 AI 刚有操作(2.5s 内)，2 人类持有控制权 */
+    int uiState() {
+        if (humanActive()) return 2;
+        return System.currentTimeMillis() - lastAgentAction < 2500 ? 1 : 0;
+    }
 
     void start() {
         running = true;
@@ -80,18 +87,18 @@ public class AgentServer {
             return;
         }
         if (path.equals("/takeover")) {
-            manualTakeover = "1".equals(m.get("on"));
-            if (!manualTakeover) lastHumanTouch = 0;
+            setTakeover("1".equals(m.get("on")));
             json(out, 200, "{\"ok\":true,\"manualTakeover\":" + manualTakeover + "}");
             return;
         }
-        if (path.equals("/screenshot")) { screenshot(out); return; }
+        if (path.equals("/screenshot")) { lastAgentAction = System.currentTimeMillis(); screenshot(out); return; }
         if (path.equals("/window")) { window(m, out); return; }
         if (cl == null || !cl.running) { json(out, 503, "{\"ok\":false,\"error\":\"not connected\"}"); return; }
         if (humanActive() && !"1".equals(m.get("force"))) {
             json(out, 423, "{\"ok\":false,\"error\":\"human has control\",\"humanActive\":true}"); return;
         }
         int w = svc.vw, hgt = svc.vh;
+        lastAgentAction = System.currentTimeMillis();
         switch (path) {
             case "/tap": {
                 int x = i(m, "x"), y = i(m, "y");
