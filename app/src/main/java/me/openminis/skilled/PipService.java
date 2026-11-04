@@ -10,7 +10,7 @@ import android.view.*;
 /** 主屏悬浮小窗：SurfaceView 显示 scrcpy 虚拟屏的 H.264 流，触摸经控制通道回传。 */
 public class PipService extends Service implements SurfaceHolder.Callback, ScrcpyClient.Listener {
     static final String T = "SKILLED";
-    WindowManager wm; SurfaceView sv; ScrcpyClient client; int port = 27183;
+    WindowManager wm; SurfaceView sv; volatile ScrcpyClient client; AgentServer agent; int port = 27183;
     volatile int vw = 540, vh = 960;
 
 
@@ -26,6 +26,8 @@ public class PipService extends Service implements SurfaceHolder.Callback, Scrcp
         sv = new SurfaceView(this);
         sv.getHolder().addCallback(this);
         sv.setOnTouchListener((v, e) -> {
+            Log.i(T, "touch action=" + e.getActionMasked() + " agent=" + (agent != null));
+            if (agent != null) agent.humanTouched();   // 人类触摸 → 自动接管
             if (client == null) return true;
             int a = e.getActionMasked(); // 0 down,1 up,2 move
             if (a > 2) a = 1;
@@ -41,6 +43,7 @@ public class PipService extends Service implements SurfaceHolder.Callback, Scrcp
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.LEFT; lp.x = 20; lp.y = 300;
         wm.addView(sv, lp);
+        agent = new AgentServer(this); agent.start();
         Log.i(T, "overlay added, port=" + port);
         return START_STICKY;
     }
@@ -53,5 +56,5 @@ public class PipService extends Service implements SurfaceHolder.Callback, Scrcp
     @Override public void surfaceDestroyed(SurfaceHolder h) { if (client != null) client.stop(); client = null; }
     @Override public void onVideoSize(int w, int h) { vw = w; vh = h; }
     @Override public void onClosed(String why) { Log.w(T, "closed: " + why); }
-    @Override public void onDestroy() { if (client != null) client.stop(); if (sv != null) wm.removeView(sv); }
+    @Override public void onDestroy() { if (agent != null) agent.stop(); if (client != null) client.stop(); if (sv != null) wm.removeView(sv); }
 }
