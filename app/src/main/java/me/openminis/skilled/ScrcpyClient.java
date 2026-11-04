@@ -23,6 +23,7 @@ public class ScrcpyClient {
     final String host; final int port; final Surface surface; final Listener l;
     Socket video, control; DataOutputStream ctl; MediaCodec codec;
     volatile boolean running; volatile int vw, vh;
+    volatile long frames; volatile long firstFrameAt; volatile String lastError = "";
     final ExecutorService tx = Executors.newSingleThreadExecutor(); // 控制消息统一在发送线程写 socket
 
     public ScrcpyClient(String host, int port, Surface s, Listener l) { this.host = host; this.port = port; this.surface = s; this.l = l; }
@@ -71,9 +72,11 @@ public class ScrcpyClient {
                 byte[] data = new byte[size]; in.readFully(data);
                 boolean config = (pf & (1L << 62)) != 0, key = (pf & (1L << 61)) != 0;
                 long pts = pf & ((1L << 61) - 1);
+                if (!config) { frames++; if (firstFrameAt == 0) firstFrameAt = System.currentTimeMillis(); }
                 feed(data, pts, config, key);
             }
         } catch (Throwable e) {
+            lastError = String.valueOf(e);
             Log.e(T, "video loop end: " + e);
             if (l != null) l.onClosed(String.valueOf(e));
         }

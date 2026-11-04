@@ -44,3 +44,13 @@ fwd() {
 
 agent() { fwd || { echo '{"ok":false,"error":"forward failed"}'; return 1; }; timeout ${CT:-15} curl -s "http://127.0.0.1:$FP$1"; }
 agent_to() { fwd || return 1; timeout 20 curl -s "http://127.0.0.1:$FP$1" -o "$2"; }
+
+# 出错时统一附带的更新建议：先更新到最新版再试
+SK_VERSION=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
+upgrade_hint() { echo "hint: 本 skill 版本 ${SK_VERSION:-?}。出错请先更新到最新版（重新安装本 skill 包，再运行 start.sh 会自动升级设备上的 APK），再试一次是否解决。详见 CHANGELOG.md"; }
+# 读设备上 APK 的版本反馈：打印 JSON（device_version/skill_version/match）
+version_info() {
+  HAVE=$(adbx shell "dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//'" 2>/dev/null | tr -d '\r ')
+  M=false; [ "$HAVE" = "$SK_VERSION" ] && M=true
+  echo "{\"skill\":\"${SK_VERSION}\",\"apk\":\"${HAVE:-not-installed}\",\"match\":$M}"
+}

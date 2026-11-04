@@ -5,7 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.PixelCopy;
-import android.view.SurfaceView;
+import android.view.TextureView;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -34,17 +34,23 @@ public class AgentServer {
     volatile boolean manualTakeover;
     volatile long lastHumanTouch;
     volatile long lastAgentAction;
+    volatile String title = ""; volatile boolean stopped;
     ServerSocket ss; volatile boolean running;
 
     AgentServer(PipService s) { svc = s; }
 
     boolean humanActive() { return manualTakeover || System.currentTimeMillis() - lastHumanTouch < HUMAN_IDLE_MS; }
     void humanTouched() { lastHumanTouch = System.currentTimeMillis(); }
-    void setTakeover(boolean on) { manualTakeover = on; if (!on) lastHumanTouch = 0; }
+    void setTakeover(boolean on) { manualTakeover = on; if (!on) { lastHumanTouch = 0; stopped = false; } }
+    /** 用户点「立即停止」：agent 操作一律 423，直到「交还 AI」或 /resume。 */
+    void stopByUser() { stopped = true; manualTakeover = false; title = ""; }
+    boolean held() { return manualTakeover || stopped; }
+    String versionName() { try { return svc.getPackageManager().getPackageInfo(svc.getPackageName(), 0).versionName; } catch (Throwable e) { return "unknown"; } }
+    long versionCode() { try { return svc.getPackageManager().getPackageInfo(svc.getPackageName(), 0).getLongVersionCode(); } catch (Throwable e) { return -1; } }
     /** 0 AI 待命，1 AI 刚有操作(2.5s 内)，2 人类持有控制权 */
     int uiState() {
-        if (humanActive()) return 2;
-        return System.currentTimeMillis() - lastAgentAction < 2500 ? 1 : 0;
+        if (stopped || humanActive()) return 2;
+        return System.currentTimeMillis() - lastAgentAction < 4000 ? 1 : 0;
     }
 
     void start() {
@@ -82,30 +88,46 @@ public class AgentServer {
     void route(String path, Map<String, String> m, OutputStream out) throws Exception {
         ScrcpyClient cl = svc.client;
         if (path.equals("/status")) {
-            json(out, 200, "{\"ok\":true,\"connected\":" + (cl != null && cl.running) + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
-                    + ",\"humanActive\":" + humanActive() + ",\"manualTakeover\":" + manualTakeover + "}");
+            long fr = cl == null ? 0 : cl.frames;
+            boolean ready = cl != null && cl.running && fr > 0;
+            json(out, 200, "{\"ok\":true,\"connected\":" + (cl != null && cl.running) + ",\"ready\":" + ready + ",\"frames\":" + fr
+                    + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
+                    + ",\"humanActive\":" + humanActive() + ",\"manualTakeover\":" + manualTakeover
+                    + ",\"error\":" + quote(cl == null ? "no client" : cl.lastError) + "}");
             return;
         }
+        if (m.get("title") != null) title = m.get("title");
+        if (path.equals("/version")) {
+            json(out, 200, "{\"ok\":true,\"app\":\"me.openminis.skilled\",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode()
+                    + ",\"scrcpy\":\"5.0.1\",\"protocol\":1,\"sdk\":" + android.os.Build.VERSION.SDK_INT + ",\"device\":" + quote(android.os.Build.MODEL) + "}");
+            return;
+        }
+        if (path.equals("/title")) { title = m.containsKey("s") ? m.get("s") : ""; lastAgentAction = System.currentTimeMillis(); json(out, 200, "{\"ok\":true}"); return; }
+        if (path.equals("/resume")) { setTakeover(false); json(out, 200, "{\"ok\":true}"); return; }
         if (path.equals("/takeover")) {
             setTakeover("1".equals(m.get("on")));
             json(out, 200, "{\"ok\":true,\"manualTakeover\":" + manualTakeover + "}");
             return;
         }
-        if (path.equals("/screenshot")) { lastAgentAction = System.currentTimeMillis(); screenshot(out); return; }
+        if (path.equals("/screenshot")) { lastAgentAction = System.currentTimeMillis(); screenshot(m, out); return; }
         if (path.equals("/window")) { window(m, out); return; }
+        if (stopped && !"1".equals(m.get("force"))) {
+            json(out, 423, "{\"ok\":false,\"error\":\"stopped by user\",\"hint\":\"用户点了立即停止；请询问用户后再继续，或让用户点交还 AI\"}"); return;
+        }
         if (cl == null || !cl.running) { json(out, 503, "{\"ok\":false,\"error\":\"not connected\"}"); return; }
         if (humanActive() && !"1".equals(m.get("force"))) {
             json(out, 423, "{\"ok\":false,\"error\":\"human has control\",\"humanActive\":true}"); return;
         }
         int w = svc.vw, hgt = svc.vh;
+        float rf = 1f; try { if (m.containsKey("ref")) rf = w / Math.max(1f, Float.parseFloat(m.get("ref"))); } catch (Throwable e) {}
         lastAgentAction = System.currentTimeMillis();
         switch (path) {
             case "/tap": {
-                int x = i(m, "x"), y = i(m, "y");
+                int x = c(m, "x", rf), y = c(m, "y", rf);
                 cl.touch(0, -2L, x, y, w, hgt, 1f); Thread.sleep(60); cl.touch(1, -2L, x, y, w, hgt, 0f);
                 break; }
             case "/swipe": {
-                int x1 = i(m, "x1"), y1 = i(m, "y1"), x2 = i(m, "x2"), y2 = i(m, "y2");
+                int x1 = c(m, "x1", rf), y1 = c(m, "y1", rf), x2 = c(m, "x2", rf), y2 = c(m, "y2", rf);
                 int ms = m.containsKey("ms") ? i(m, "ms") : 300, steps = Math.max(4, ms / 16);
                 cl.touch(0, -2L, x1, y1, w, hgt, 1f);
                 for (int k = 1; k <= steps; k++) { Thread.sleep(ms / steps); cl.touch(2, -2L, x1 + (x2 - x1) * k / steps, y1 + (y2 - y1) * k / steps, w, hgt, 1f); }
@@ -131,25 +153,28 @@ public class AgentServer {
         json(out, 200, "{\"ok\":true,\"hidden\":" + p.hidden + "}");
     }
 
-    void screenshot(OutputStream out) throws Exception {
-        final SurfaceView sv = svc.sv;
+    void screenshot(Map<String, String> m, OutputStream out) throws Exception {
+        final TextureView sv = svc.sv;
         if (sv == null || svc.vw <= 0) { json(out, 503, "{\"ok\":false,\"error\":\"no surface\"}"); return; }
         final Bitmap bmp = Bitmap.createBitmap(svc.vw, svc.vh, Bitmap.Config.ARGB_8888);
         final int[] res = {-1}; final CountDownLatch latch = new CountDownLatch(1);
         new Handler(Looper.getMainLooper()).post(() -> {
-            try { PixelCopy.request(sv, bmp, rc -> { res[0] = rc; latch.countDown(); }, new Handler(Looper.getMainLooper())); }
+            try { sv.getBitmap(bmp); res[0] = 0; latch.countDown(); }
             catch (Throwable e) { Log.e(T, "pixelcopy " + e); latch.countDown(); }
         });
-        if (!latch.await(3, TimeUnit.SECONDS) || res[0] != PixelCopy.SUCCESS) {
+        if (!latch.await(3, TimeUnit.SECONDS) || res[0] != 0) {
             json(out, 500, "{\"ok\":false,\"error\":\"pixelcopy failed rc=" + res[0] + "\"}"); return;
         }
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        bmp.compress(Bitmap.CompressFormat.PNG, 100, bo);
+        float sc = 1f; try { if (m.containsKey("w")) sc = Math.max(0.05f, Math.min(1f, Float.parseFloat(m.get("w")) / svc.vw)); else if (m.containsKey("scale")) sc = Math.max(0.1f, Math.min(1f, Float.parseFloat(m.get("scale")))); } catch (Throwable e) {}
+        Bitmap ob = sc < 0.99f ? Bitmap.createScaledBitmap(bmp, Math.max(1, (int) (bmp.getWidth() * sc)), Math.max(1, (int) (bmp.getHeight() * sc)), true) : bmp;
+        ob.compress(Bitmap.CompressFormat.PNG, 100, bo);
         byte[] b = bo.toByteArray();
         out.write(("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " + b.length + "\r\nConnection: close\r\n\r\n").getBytes());
         out.write(b); out.flush();
     }
 
+    static int c(Map<String, String> m, String k, float rf) { return (int) (Float.parseFloat(m.get(k)) * rf); }
     static int i(Map<String, String> m, String k) { return (int) Float.parseFloat(m.get(k)); }
     static String dec(String s) { try { return URLDecoder.decode(s, "UTF-8"); } catch (Throwable e) { return s; } }
     static String quote(String s) { return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""; }
