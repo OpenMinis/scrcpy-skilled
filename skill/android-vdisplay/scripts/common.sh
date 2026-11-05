@@ -1,10 +1,10 @@
 #!/bin/sh
 # Shared helpers: locate the skill dir, adb wrapper with timeout and self-healing. Sourced by other scripts.
 SK_DIR=$(cd "$(dirname "$0")/.." && pwd)
-PKG=me.openminis.skilled
+PKG=app.openminis.vdisplay
 DEV=/data/local/tmp/sc
 AGENT_PORT=${AGENT_PORT:-28080}
-STATE=${SKILLED_STATE:-$HOME/.pip-display}; mkdir -p "$STATE"
+STATE=${SKILLED_STATE:-$HOME/.android-vdisplay}; mkdir -p "$STATE"
 
 # adb target: SERIAL env var first; else the only online device; else try ADB_CONNECT (default localhost:5555)
 adbx() {
@@ -42,8 +42,21 @@ fwd() {
   fi
 }
 
-agent() { fwd || { echo '{"ok":false,"error":"forward failed"}'; return 1; }; timeout ${CT:-15} curl -s "http://127.0.0.1:$FP$1"; }
-agent_to() { fwd || return 1; timeout 20 curl -s "http://127.0.0.1:$FP$1" -o "$2"; }
+# Fast path: call the agent straight through the existing forward; only if that fails, run the (slower) adb health check / forward repair.
+# This removes `adb devices` and the /status probe from every successful call (they cost ~150–400 ms each time).
+agent() {
+  FP=$(cat "$STATE/fport" 2>/dev/null || echo 28090)
+  R=$(timeout ${CT:-15} curl -s -m ${CT:-15} "http://127.0.0.1:$FP$1" 2>/dev/null) && [ -n "$R" ] && { printf '%s\n' "$R"; return 0; }
+  ensure_adb || return $?
+  fwd || { echo '{"ok":false,"error":"forward failed"}'; return 1; }
+  timeout ${CT:-15} curl -s "http://127.0.0.1:$FP$1"
+}
+agent_to() {
+  FP=$(cat "$STATE/fport" 2>/dev/null || echo 28090)
+  timeout 20 curl -s -m 20 "http://127.0.0.1:$FP$1" -o "$2" 2>/dev/null && [ -s "$2" ] && return 0
+  ensure_adb || return $?
+  fwd || return 1; timeout 20 curl -s "http://127.0.0.1:$FP$1" -o "$2"
+}
 
 # Upgrade hint appended to all errors: update to the latest version and retry
 SK_VERSION=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)

@@ -1,22 +1,23 @@
 ---
-name: pip-display
+name: android-vdisplay
 description: 在 Android 设备的 Minis 里，通过本机 adb 创建「副屏（虚拟显示器）」并以悬浮小窗显示在主屏，让 agent 在副屏里启动 App、截图、点击、滑动、输入、按键，人类可随时触摸小窗接管（自动互斥）。基于 scrcpy server（trusted 虚拟屏）+ 配套 APK。当用户提到「副屏」「虚拟屏」「画中画」「悬浮窗操作手机」「后台操作 App」「不影响主屏的自动化」「scrcpy 虚拟显示器」「agent 操作手机 App 并可接管」，或需要在 Android 本机上让 agent 操作 App 而不占用当前屏幕时使用。
-version: 0.7.0
+version: 0.9.0
 ---
 
-# pip-display：本机副屏 + 悬浮小窗 + agent 操作
+# android-vdisplay：本机副屏 + 悬浮小窗 + agent 操作
 
 同一台手机上：scrcpy server 经本机 adb(shell) 建一块虚拟屏，App 在副屏运行，画面以悬浮小窗叠在主屏；agent 用脚本操作，人触摸小窗即可接管。
 
 ## ⚠️ 出错先更新
-**任何脚本报错、行为异常，第一步先更新到最新版再试一次**：重新安装最新的 pip-display 包（覆盖本目录），再运行 `start.sh`——它会自动对比设备上 APK 与本 skill 自带版本，不一致就重装。`sh scripts/agent.sh version` 可查看 skill/APK 版本是否一致（APK 的 `/version` 接口也返回 version、versionCode、protocol、sdk、device）。更新内容见 `CHANGELOG.md`。更新后仍失败，再按下面的 stage/hint 处理，并把 `version` 输出一并报告给用户。
+**任何脚本报错、行为异常，第一步先更新到最新版再试一次**：重新安装最新的 android-vdisplay 包（覆盖本目录），再运行 `start.sh`——它会自动对比设备上 APK 与本 skill 自带版本，不一致就重装。`sh scripts/agent.sh version` 可查看 skill/APK 版本是否一致（APK 的 `/version` 接口也返回 version、versionCode、protocol、sdk、device）。更新内容见 `CHANGELOG.md`。更新后仍失败，再按下面的 stage/hint 处理，并把 `version` 输出一并报告给用户。
 
 ## 最短路径（照做，别探索）
 ```sh
-SK=/var/minis/skills/pip-display/scripts
+SK=/var/minis/skills/android-vdisplay/scripts
 sh $SK/start.sh                        # 一条命令：自动安装→选空闲端口→起 server/桥/小窗→等视频帧到达
 sh $SK/run-app.sh com.android.chrome   # 启动并确认 App 真的在副屏前台
-sh $SK/agent.sh shot /tmp/s.png        # 截图，看图，再决定下一步
+sh $SK/agent.sh shot /tmp/s.png        # 截图，看图，再决定下一步（默认 PNG，无损）
+sh $SK/agent.sh shot /tmp/s.jpg jpg 70 # JPEG：约快 2 倍、体积约 1/4；agent 看图用它更省时间和 token
 sh $SK/agent.sh tap 270 480            # 副屏像素坐标
 sh $SK/stop.sh
 ```

@@ -1,4 +1,4 @@
-package me.openminis.skilled;
+package app.openminis.vdisplay;
 
 import android.animation.ValueAnimator;
 import android.app.Notification;

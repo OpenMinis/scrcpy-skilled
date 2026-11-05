@@ -1,6 +1,14 @@
 # 更新说明
 
-> **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 pip-display 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
+> **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 android-vdisplay 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
+
+## 0.9.0
+- **Renamed**: package `app.openminis.vdisplay` (was me.openminis.skilled), skill `android-vdisplay` (was pip-display), state dir ~/.android-vdisplay. Android package names cannot contain hyphens.
+- **Cold start 6.5 s → 2.1 s**: start.sh now makes one preflight call and one device-side `up` call (stop → server → bridge → overlay in dependency order with 50 ms polling) instead of ~12 adb round trips with 1 s sleeps. The device-side work itself is ~1.1 s.
+- **Per-command overhead roughly halved**: agent.sh calls the forwarded HTTP port directly and only runs the adb health check/forward repair when that fails (tap 598 → ~190 ms over HTTP, ~300 ms end to end).
+- **run-app.sh 1.9 s → ~0.4 s**: polls the foreground on the device every 100 ms instead of sleeping 1 s per try; a wrong package name now fails in ~350 ms.
+- **Screenshots**: `agent.sh shot <file> [png|jpg|webp] [q]`; jpg is ~2x faster than png and ~4x smaller (540 wide: png 307 ms/236 KB, jpg 173 ms/64 KB).
+- Cases not changed: scrcpy server startup (~0.5 s) and PNG encoding of full-size frames (~430 ms) are the remaining floors; `uiautomator dump` still ~2.3 s and cannot target the secondary display.
 
 ## 0.7.0
 - start.sh reports per-stage timing in its result JSON: {"ms":{"preflight","server","bridge","overlay","ready","total"}}

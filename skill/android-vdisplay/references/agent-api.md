@@ -5,7 +5,8 @@ APK 启动后在设备本机监听。电脑上用 `adb forward tcp:<本机端口
 | 路径 | 说明 |
 |---|---|
 | `/status` | `{connected,width,height,humanActive,manualTakeover}` |
-| `/screenshot` | PNG（PixelCopy 自小窗 SurfaceView，尺寸=虚拟屏） |
+| `/screenshot` | PixelCopy 自小窗 SurfaceView。参数：`w=宽`、`scale=0.1~1`、`fmt=png\|jpg\|webp`、`q=30~100`（jpg/webp 的质量）。响应头 `X-Timing-Ms` 给出 capture/scale/encode 耗时 |
+| `/ping` | 空操作，用来量传输开销 |
 | `/tap?x=&y=` | 点击 |
 | `/swipe?x1=&y1=&x2=&y2=&ms=300` | 滑动 |
 | `/key?code=4` | 按键（Android keycode） |

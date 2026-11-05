@@ -3,15 +3,15 @@
 # is NOT part of any sample. Prints "stage<TAB>ms" lines; perf.py aggregates them.
 # Env: SERIAL, N, SK (skill dir), DISP (virtual display id), FP (adb-forwarded agent port)
 export PATH=/opt/homebrew/bin:$PATH
-N=${N:-15}; SK=${SK:-/tmp/pip-display}; S="adb -s $SERIAL"
+N=${N:-15}; SK=${SK:-/tmp/android-vdisplay}; S="adb -s $SERIAL"
 now() { python3 -c 'import time;print(time.perf_counter())'; }
 # time a command: prints "stage<TAB>ms"
 T() { name=$1; shift; a=$(now); "$@" >/dev/null 2>&1; b=$(now); python3 -c "print('$name\t%.1f' % (($b-$a)*1000))"; }
 
-FP=$(cat ~/.pip-display/fport 2>/dev/null)
+FP=$(cat ~/.android-vdisplay/fport 2>/dev/null)
 [ -z "$FP" ] && { FP=28093; adb -s $SERIAL forward tcp:$FP tcp:28080 >/dev/null; }
 H="http://127.0.0.1:$FP"
-DISP=${DISP:-$(cat ~/.pip-display/display)}
+DISP=${DISP:-$(cat ~/.android-vdisplay/display)}
 
 # --- floor costs: what any adb / http call pays before the app does anything ---
 for i in $(seq $N); do T "floor: adb shell true" $S shell true; done

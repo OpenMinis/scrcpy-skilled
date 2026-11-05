@@ -1,4 +1,4 @@
-package me.openminis.skilled;
+package app.openminis.vdisplay;
 
 import android.graphics.Bitmap;
 import android.os.Handler;
@@ -98,7 +98,7 @@ public class AgentServer {
         }
         if (m.get("title") != null) title = m.get("title");
         if (path.equals("/version")) {
-            json(out, 200, "{\"ok\":true,\"app\":\"me.openminis.skilled\",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode()
+            json(out, 200, "{\"ok\":true,\"app\":\"app.openminis.vdisplay\",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode()
                     + ",\"scrcpy\":\"5.0.1\",\"protocol\":1,\"sdk\":" + android.os.Build.VERSION.SDK_INT + ",\"device\":" + quote(android.os.Build.MODEL) + "}");
             return;
         }
@@ -172,12 +172,18 @@ public class AgentServer {
         float sc = 1f; try { if (m.containsKey("w")) sc = Math.max(0.05f, Math.min(1f, Float.parseFloat(m.get("w")) / svc.vw)); else if (m.containsKey("scale")) sc = Math.max(0.1f, Math.min(1f, Float.parseFloat(m.get("scale")))); } catch (Throwable e) {}
         Bitmap ob = sc < 0.99f ? Bitmap.createScaledBitmap(bmp, Math.max(1, (int) (bmp.getWidth() * sc)), Math.max(1, (int) (bmp.getHeight() * sc)), true) : bmp;
         final long t2 = System.nanoTime();                                    // scaled
-        ob.compress(Bitmap.CompressFormat.PNG, 100, bo);
+        // fmt=jpg|webp: much faster to encode than PNG (PNG ignores the quality setting and is always slow). Default stays PNG (lossless).
+        String fmt = m.containsKey("fmt") ? m.get("fmt").toLowerCase() : "png";
+        int q = 80; try { if (m.containsKey("q")) q = Math.max(30, Math.min(100, Integer.parseInt(m.get("q")))); } catch (Throwable e) {}
+        Bitmap.CompressFormat cf = Bitmap.CompressFormat.PNG; String mime = "image/png";
+        if (fmt.equals("jpg") || fmt.equals("jpeg")) { cf = Bitmap.CompressFormat.JPEG; mime = "image/jpeg"; }
+        else if (fmt.equals("webp")) { cf = Bitmap.CompressFormat.WEBP_LOSSY; mime = "image/webp"; }
+        ob.compress(cf, q, bo);
         byte[] b = bo.toByteArray();
         final long t3 = System.nanoTime();                                    // PNG encoded
         // Server-side timings (ms) so clients can separate app cost from transport cost
         String tm = "X-Timing-Ms: capture=" + (t1 - t0) / 1000000 + ",scale=" + (t2 - t1) / 1000000 + ",encode=" + (t3 - t2) / 1000000 + ",size=" + ob.getWidth() + "x" + ob.getHeight() + "\r\n";
-        out.write(("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n" + tm + "Content-Length: " + b.length + "\r\nConnection: close\r\n\r\n").getBytes());
+        out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\n" + tm + "Content-Length: " + b.length + "\r\nConnection: close\r\n\r\n").getBytes());
         out.write(b); out.flush();
     }
 

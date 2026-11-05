@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pip-display performance benchmark (iSH side): ships perf-remote.sh to the Mac, runs it there in ONE ssh
+"""android-vdisplay performance benchmark (iSH side): ships perf-remote.sh to the Mac, runs it there in ONE ssh
 session (so the iSH->ssh hop is not part of any sample), and aggregates the numbers.
 
 Usage: perf.py [N=15] [--out FILE]
@@ -37,13 +37,13 @@ for i in range(COLD):
     except Exception:
         print("cold start", i, "failed:", o[:160])
 remote("run", "run-app.sh", "com.google.android.calculator")
-disp = open(os.path.expanduser("~/.pip-display/display")).read().strip() if os.path.exists(os.path.expanduser("~/.pip-display/display")) else ""
+disp = open(os.path.expanduser("~/.android-vdisplay/display")).read().strip() if os.path.exists(os.path.expanduser("~/.android-vdisplay/display")) else ""
 
 # ---- 2. everything else, measured on the Mac ----
 script = open(os.path.join(ROOT, "scripts", "test", "perf-remote.sh")).read()
 subprocess.run(["sh", REMOTE, "sh", "cat > /tmp/perf-remote.sh"], input=script, text=True, capture_output=True)
 did = remote("sh", "grep -o 'New display: .*id=[0-9]*' /dev/null; adb -s $SERIAL shell \"grep -o 'New display: .*id=[0-9]*' /data/local/tmp/sc/server.log | tail -1 | sed 's/.*id=//'\"").strip()
-out = remote("sh", f"N={N} DISP={did} SK=/tmp/pip-display bash /tmp/perf-remote.sh")
+out = remote("sh", f"N={N} DISP={did} SK=/tmp/android-vdisplay bash /tmp/perf-remote.sh")
 remote("run", "agent.sh", "resume")
 
 samples, sizes, timing, nodes = {}, {}, [], {}
@@ -58,7 +58,7 @@ for line in out.splitlines():
 
 rows = {f"start: {k}": st(v) for k, v in cold.items()}
 rows.update({k: st(v) for k, v in samples.items() if v})
-print(f"\npip-display perf — Pixel 6 / Android 17, N={N} (cold start N={COLD}), device driven from a Mac on the same LAN\n")
+print(f"\nandroid-vdisplay perf — Pixel 6 / Android 17, N={N} (cold start N={COLD}), device driven from a Mac on the same LAN\n")
 print(f"{'stage':50s} {'n':>3s} {'min':>7s} {'median':>7s} {'p90':>7s} {'max':>7s}   (ms)")
 for k, s in rows.items():
     print(f"{k:50s} {s['n']:3d} {s['min']:7.0f} {s['median']:7.0f} {s['p90']:7.0f} {s['max']:7.0f}")

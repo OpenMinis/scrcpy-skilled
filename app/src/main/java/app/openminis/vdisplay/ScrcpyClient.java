@@ -1,4 +1,4 @@
-package me.openminis.skilled;
+package app.openminis.vdisplay;
 
 import android.media.MediaCodec;
 import android.media.MediaFormat;

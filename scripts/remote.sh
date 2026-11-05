@@ -12,9 +12,9 @@ set -e
 REMOTE=${REMOTE:-ethan@mini2.wsen.me}
 SERIAL=${SERIAL:-10.1.10.11:5555}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SKILL_DIR=${SKILL_DIR:-/var/minis/skills/pip-display}
+SKILL_DIR=${SKILL_DIR:-/var/minis/skills/android-vdisplay}
 RDIR=/tmp/scrcpy-skilled
-RSKILL=/tmp/pip-display
+RSKILL=/tmp/android-vdisplay
 SSH="ssh -o ConnectTimeout=10 -o BatchMode=yes -o ServerAliveInterval=15"
 ENV="export PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk@17/bin:\$PATH ANDROID_HOME=\$HOME/Library/Android/sdk SERIAL=$SERIAL ADB_CONNECT=$SERIAL"
 
@@ -22,6 +22,8 @@ rsh() { $SSH "$REMOTE" "$ENV; $*"; }
 
 sync_src() {
   # tar over ssh: rsync may be absent in iSH; exclude build outputs and the scrcpy submodule (not needed to build the app)
+  # wipe the remote source dirs first: tar only adds files, so renamed/removed files would otherwise linger and get compiled
+  $SSH "$REMOTE" "rm -rf $RDIR/app $RDIR/shell $RDIR/scripts && mkdir -p $RDIR"
   tar -C "$ROOT" -cf - --exclude=./build --exclude=./third_party --exclude=./.git . \
     | $SSH "$REMOTE" "mkdir -p $RDIR && tar -C $RDIR -xf -"
   # same signing key as before, otherwise the phone rejects the update (INSTALL_FAILED_UPDATE_INCOMPATIBLE)
@@ -42,7 +44,7 @@ case "$1" in
     sync_src
     rsh "cd $RDIR && bash scripts/build-apk.sh 2>&1 | grep -v Picked | tail -3"
     ensure_device
-    rsh "adb -s $SERIAL install -r $RDIR/build/skilled.apk | tail -1; adb -s $SERIAL shell 'appops set me.openminis.skilled SYSTEM_ALERT_WINDOW allow; dumpsys package me.openminis.skilled | grep -E \"versionName|lastUpdateTime\"'"
+    rsh "adb -s $SERIAL install -r $RDIR/build/skilled.apk | tail -1; adb -s $SERIAL shell 'appops set app.openminis.vdisplay SYSTEM_ALERT_WINDOW allow; dumpsys package app.openminis.vdisplay | grep -E \"versionName|lastUpdateTime\"'"
     # keep local copies of the artifacts in sync (for packaging the skill)
     $SSH "$REMOTE" "cat $RDIR/build/skilled.apk" > "$ROOT/build/skilled.apk"
     $SSH "$REMOTE" "cat $RDIR/build/skilled-shell.jar" > "$ROOT/build/skilled-shell.jar"

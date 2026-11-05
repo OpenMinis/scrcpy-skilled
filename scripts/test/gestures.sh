@@ -6,7 +6,7 @@ R=scripts/remote.sh
 pass=0; fail=0
 ok()  { echo "  PASS  $*"; pass=$((pass+1)); }
 bad() { echo "  FAIL  $*"; fail=$((fail+1)); }
-FR() { for _ in 1 2 3 4 5; do f=$(sh $R sh "adb -s \$SERIAL shell dumpsys input | grep -m1 -E 'name=.*me.openminis.skilled'" | sed -n 's/.*frame=\[\([0-9-]*\),\([0-9-]*\)\]\[\([0-9-]*\),\([0-9-]*\)\].*/\1 \2 \3 \4/p'); [ -n "$f" ] && { echo "$f"; return; }; sleep 0.5; done; echo "0 0 0 0"; }
+FR() { for _ in 1 2 3 4 5; do f=$(sh $R sh "adb -s \$SERIAL shell dumpsys input | grep -m1 -E 'name=.*app.openminis.vdisplay'" | sed -n 's/.*frame=\[\([0-9-]*\),\([0-9-]*\)\]\[\([0-9-]*\),\([0-9-]*\)\].*/\1 \2 \3 \4/p'); [ -n "$f" ] && { echo "$f"; return; }; sleep 0.5; done; echo "0 0 0 0"; }
 MAN() { sh $R run agent.sh status | python3 -c 'import sys,json;print(json.load(sys.stdin)["manualTakeover"])'; }
 PINCH() { sh $R sh "adb -s \$SERIAL shell CLASSPATH=/data/local/tmp/sc/pinch.jar app_process / Pinch $*" >/dev/null; }
 AI()  { sh $R run agent.sh tap 270 150 >/dev/null; }          # mark "AI working"

@@ -1,4 +1,4 @@
-package me.openminis.skilled;
+package app.openminis.vdisplay;
 
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
