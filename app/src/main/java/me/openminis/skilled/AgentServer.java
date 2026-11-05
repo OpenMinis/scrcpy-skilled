@@ -104,6 +104,7 @@ public class AgentServer {
         }
         if (path.equals("/title")) { title = m.containsKey("s") ? m.get("s") : ""; lastAgentAction = System.currentTimeMillis(); json(out, 200, "{\"ok\":true}"); return; }
         if (path.equals("/resume")) { setTakeover(false); json(out, 200, "{\"ok\":true}"); return; }
+        if (path.equals("/ping")) { json(out, 200, "{\"ok\":true,\"t\":" + System.currentTimeMillis() + "}"); return; }   // no-op: isolates HTTP transport cost
         if (path.equals("/takeover")) {
             setTakeover("1".equals(m.get("on")));
             json(out, 200, "{\"ok\":true,\"manualTakeover\":" + manualTakeover + "}");
@@ -154,6 +155,7 @@ public class AgentServer {
     }
 
     void screenshot(Map<String, String> m, OutputStream out) throws Exception {
+        final long t0 = System.nanoTime();
         final TextureView sv = svc.sv;
         if (sv == null || svc.vw <= 0) { json(out, 503, "{\"ok\":false,\"error\":\"no surface\"}"); return; }
         final Bitmap bmp = Bitmap.createBitmap(svc.vw, svc.vh, Bitmap.Config.ARGB_8888);
@@ -165,12 +167,17 @@ public class AgentServer {
         if (!latch.await(3, TimeUnit.SECONDS) || res[0] != 0) {
             json(out, 500, "{\"ok\":false,\"error\":\"pixelcopy failed rc=" + res[0] + "\"}"); return;
         }
+        final long t1 = System.nanoTime();                                    // bitmap captured
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         float sc = 1f; try { if (m.containsKey("w")) sc = Math.max(0.05f, Math.min(1f, Float.parseFloat(m.get("w")) / svc.vw)); else if (m.containsKey("scale")) sc = Math.max(0.1f, Math.min(1f, Float.parseFloat(m.get("scale")))); } catch (Throwable e) {}
         Bitmap ob = sc < 0.99f ? Bitmap.createScaledBitmap(bmp, Math.max(1, (int) (bmp.getWidth() * sc)), Math.max(1, (int) (bmp.getHeight() * sc)), true) : bmp;
+        final long t2 = System.nanoTime();                                    // scaled
         ob.compress(Bitmap.CompressFormat.PNG, 100, bo);
         byte[] b = bo.toByteArray();
-        out.write(("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " + b.length + "\r\nConnection: close\r\n\r\n").getBytes());
+        final long t3 = System.nanoTime();                                    // PNG encoded
+        // Server-side timings (ms) so clients can separate app cost from transport cost
+        String tm = "X-Timing-Ms: capture=" + (t1 - t0) / 1000000 + ",scale=" + (t2 - t1) / 1000000 + ",encode=" + (t3 - t2) / 1000000 + ",size=" + ob.getWidth() + "x" + ob.getHeight() + "\r\n";
+        out.write(("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n" + tm + "Content-Length: " + b.length + "\r\nConnection: close\r\n\r\n").getBytes());
         out.write(b); out.flush();
     }
 

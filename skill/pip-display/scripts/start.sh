@@ -3,6 +3,9 @@
 # Usage: start.sh [WxH/dpi, default = physical main screen size and dpi] [window x] [window y] [window width dp]
 # On success prints one JSON line: {"ok":true,"display":N,"port":P,"w":..,"h":..}; on failure prints {"ok":false,"stage":"...","hint":"...","log":"..."} and exits non-zero.
 . "$(dirname "$0")/common.sh"; ensure_adb || { echo "{\"ok\":false,\"stage\":\"adb\",\"hint\":\"设备未连接或未授权，见 references/setup.md\"}"; exit 3; }
+now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
+T0=$(now_ms); TL=$T0; TIMING=""
+lap() { _n=$(now_ms); TIMING="$TIMING${TIMING:+,}\"$1\":$((_n-TL))"; TL=$_n; }   # per-stage milliseconds, reported in the result JSON
 if [ -z "$1" ]; then   # default matches the physical main screen (size + dpi) so app layouts match
   WMS=$(adbx shell "wm size | tail -1 | sed 's/.*: //'" | tr -d '\r'); WMD=$(adbx shell "wm density | tail -1 | sed 's/.*: //'" | tr -d '\r')
   case "$WMS" in [0-9]*x[0-9]*) SIZE="$WMS/${WMD:-420}";; *) SIZE=540x960/240;; esac
@@ -21,6 +24,7 @@ if ! adbx shell "[ -f $DEV/server.jar ] && echo ok" | grep -q ok || [ "$HAVE" !=
   IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1) || { sleep 2; IR=$(sh "$SK_DIR/scripts/install.sh" 2>&1); } || fail install "安装失败（已自动重试一次）：$(echo "$IR" | tr '\n"' '  ' | cut -c1-200)"
 fi
 adbx push "$SK_DIR/scripts/device-run.sh" $DEV/run.sh >/dev/null; adbx shell "chmod 755 $DEV/run.sh"
+lap preflight
 
 # 2. Pick a free port for the bridge (if default 27183 is taken, try the next ones) and pass it to the bridge and window
 PORT=$(adbx shell "p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi \":\$(printf %04X \$p) \"); then echo \$p; break; fi; p=\$((p+1)); done" | tr -d '\r')
@@ -37,9 +41,12 @@ if ! wait_server; then
   wait_server || fail server "scrcpy server 40 秒内未监听（已重启一次）：看 server.log（常见：jar 丢失/版本不匹配/Android 限制）"
 fi
 adbx shell "PORT=$PORT nohup setsid $DEV/run.sh bridge $SCID $PORT </dev/null >/dev/null 2>&1 &"
+lap server
 for i in $(seq 1 15); do adbx shell "grep -q listening $DEV/bridge.log" && break; sleep 1; done
 adbx shell "grep -q 'listening' $DEV/bridge.log" || fail bridge "桥未能监听端口 $PORT：看 bridge.log"
+lap bridge
 adbx shell "am start-foreground-service -n $PKG/.PipService --ei port $PORT --ei x $WX --ei y $WY --ei w $WW" >/dev/null
+lap overlay
 
 # 4. Wait for "ready": virtual display created + video frames arrived (up to 20 seconds)
 ID=""; READY=""
@@ -54,4 +61,5 @@ done
 [ -z "$ID" ] && fail display "server 未创建虚拟屏：多为桥与小窗未连上（端口 $PORT）或设备锁屏"
 [ -z "$READY" ] && fail frames "虚拟屏 $ID 已建，但小窗没收到视频帧：确认悬浮窗权限已授予、手机已解锁亮屏"
 echo "$ID" > "$STATE/display"; echo "$PORT" > "$STATE/port"
-echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\"}"
+lap ready
+echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\",\"ms\":{$TIMING,\"total\":$(( $(now_ms) - T0 ))}}"

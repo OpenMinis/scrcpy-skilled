@@ -2,6 +2,12 @@
 
 > **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 pip-display 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
 
+## 0.7.0
+- start.sh reports per-stage timing in its result JSON: {"ms":{"preflight","server","bridge","overlay","ready","total"}}
+- Agent API: new /ping (no-op, isolates transport cost); /screenshot adds an X-Timing-Ms header (capture/scale/encode)
+- Benchmark: scripts/test/perf.py (+ perf-remote.sh); results in docs/perf-0.7.0.json
+- Known limitation: `uiautomator dump --display N` ignores N and follows the focused display, so it cannot target the secondary display
+
 ## 0.6.8
 - Closing the second screen (×) now fully exits the app process: no lingering background process, threads, or open agent port. Verified: after closing, app pid=none, scrcpy server/bridge gone, virtual display gone, port 28080 closed; starting again works.
 

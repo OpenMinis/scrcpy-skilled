@@ -1,0 +1,206 @@
+{
+ "n": 15,
+ "cold_n": 5,
+ "when": "2026-11-05 14:59:33",
+ "device": "Pixel 6 / Android 17",
+ "stages": {
+  "start: preflight": {
+   "n": 5,
+   "min": 920,
+   "median": 1005,
+   "p90": 1042,
+   "max": 1042
+  },
+  "start: server": {
+   "n": 5,
+   "min": 2247,
+   "median": 2368,
+   "p90": 2612,
+   "max": 2612
+  },
+  "start: bridge": {
+   "n": 5,
+   "min": 357,
+   "median": 1449,
+   "p90": 1590,
+   "max": 1590
+  },
+  "start: overlay": {
+   "n": 5,
+   "min": 165,
+   "median": 171,
+   "p90": 174,
+   "max": 174
+  },
+  "start: ready": {
+   "n": 5,
+   "min": 436,
+   "median": 1490,
+   "p90": 1552,
+   "max": 1552
+  },
+  "start: total": {
+   "n": 5,
+   "min": 5329,
+   "median": 6460,
+   "p90": 6964,
+   "max": 6964
+  },
+  "floor: adb shell true": {
+   "n": 15,
+   "min": 79.2,
+   "median": 94.8,
+   "p90": 258.7,
+   "max": 267.3
+  },
+  "floor: http /ping (adb forward)": {
+   "n": 15,
+   "min": 99.6,
+   "median": 106.9,
+   "p90": 200.6,
+   "max": 209.5
+  },
+  "http /status": {
+   "n": 15,
+   "min": 97.9,
+   "median": 106.7,
+   "p90": 208.3,
+   "max": 228.9
+  },
+  "http /tap": {
+   "n": 15,
+   "min": 181.1,
+   "median": 194.4,
+   "p90": 252.8,
+   "max": 253.4
+  },
+  "http /swipe (120ms gesture)": {
+   "n": 15,
+   "min": 238.3,
+   "median": 251.1,
+   "p90": 300.8,
+   "max": 326.4
+  },
+  "http /key": {
+   "n": 15,
+   "min": 97.5,
+   "median": 117.4,
+   "p90": 188.3,
+   "max": 199.2
+  },
+  "http /text (ascii 5 chars)": {
+   "n": 15,
+   "min": 106.8,
+   "median": 118.0,
+   "p90": 166.7,
+   "max": 176.8
+  },
+  "shot: agent PNG full-size": {
+   "n": 15,
+   "min": 878.6,
+   "median": 948.4,
+   "p90": 977.6,
+   "max": 1086.8
+  },
+  "shot: agent PNG scale=0.5": {
+   "n": 15,
+   "min": 435.6,
+   "median": 501.2,
+   "p90": 555.0,
+   "max": 627.5
+  },
+  "shot: agent PNG w=540": {
+   "n": 15,
+   "min": 379.2,
+   "median": 475.9,
+   "p90": 524.8,
+   "max": 582.8
+  },
+  "shot: screencap main screen (adb exec-out)": {
+   "n": 15,
+   "min": 3177.0,
+   "median": 3498.0,
+   "p90": 3753.7,
+   "max": 3799.1
+  },
+  "ui dump [calculator]: on device (--display)": {
+   "n": 15,
+   "min": 2216.0,
+   "median": 2302.3,
+   "p90": 2356.3,
+   "max": 2400.5
+  },
+  "ui dump [calculator]: dump + pull to host": {
+   "n": 15,
+   "min": 2487.2,
+   "median": 2573.6,
+   "p90": 2672.4,
+   "max": 2677.8
+  },
+  "ui dump [settings]: on device (--display)": {
+   "n": 15,
+   "min": 2218.8,
+   "median": 2275.6,
+   "p90": 2361.8,
+   "max": 2391.6
+  },
+  "ui dump [settings]: dump + pull to host": {
+   "n": 15,
+   "min": 2459.8,
+   "median": 2574.2,
+   "p90": 2727.2,
+   "max": 2750.5
+  },
+  "run-app.sh (switch, incl. verification)": {
+   "n": 5,
+   "min": 1890.5,
+   "median": 1921.5,
+   "p90": 2064.8,
+   "max": 2064.8
+  }
+ },
+ "sizes": {
+  "agent_full_png": 801483,
+  "agent_half_png": 311285,
+  "agent_w540_png": 311285,
+  "main_screencap_png": 1361213,
+  "ui_xml_calculator": 19688,
+  "ui_xml_settings": 29043
+ },
+ "ui_nodes": {
+  "calculator": 48,
+  "settings": 82
+ },
+ "shot_server_ms": [
+  {
+   "capture": "38",
+   "scale": "0",
+   "encode": "613",
+   "size": "1080x2352"
+  },
+  {
+   "capture": "27",
+   "scale": "0",
+   "encode": "608",
+   "size": "1080x2352"
+  },
+  {
+   "capture": "44",
+   "scale": "0",
+   "encode": "621",
+   "size": "1080x2352"
+  },
+  {
+   "capture": "44",
+   "scale": "0",
+   "encode": "614",
+   "size": "1080x2352"
+  },
+  {
+   "capture": "45",
+   "scale": "0",
+   "encode": "579",
+   "size": "1080x2352"
+  }
+ ]
+}
