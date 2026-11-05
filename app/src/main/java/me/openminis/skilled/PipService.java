@@ -382,7 +382,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
      */
     static final String GLOW_AGSL =
             "uniform float2 size; uniform float radius; uniform float bw;\n" +
-            "uniform float rot; uniform float rot2; uniform float wave; uniform float amp; uniform float inten; uniform float active; uniform float time;\n" +
+            "uniform float rot; uniform float rot2; uniform float amp; uniform float inten; uniform float active; uniform float time;\n" +
             "layout(color) uniform half4 c0; layout(color) uniform half4 c1; layout(color) uniform half4 c2;\n" +
             "layout(color) uniform half4 c3; layout(color) uniform half4 c4; layout(color) uniform half4 c5;\n" +
             "float sdRR(float2 p, float2 b, float r) { float2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }\n" +
@@ -401,11 +401,12 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             "  float n = clamp(d / (min(size.x, size.y) * 0.5), 0.0, 1.0);   // 0=边缘 1=中心\n" +
             "  float ang = atan(p.y, p.x) / 6.2831853 + 0.5;\n" +
             "  half3 col = pal(ang + rot + 0.12 * n);                          // 越往内颜色略微旋开，更有流动感\n" +
-            "  float edge = exp(-n * 4.2) * 0.62 + exp(-n * 1.6) * 0.14;      // 常驻：边缘亮，向内柔和延伸\n" +
-            "  float front = wave * 0.95;                                      // 光波前沿：0 边缘 → 中心\n" +
-            "  float band = exp(-pow((n - front) / 0.14, 2.0));                // 前沿亮带\n" +
-            "  float trail = smoothstep(front + 0.05, front - 0.35, n) * 0.38; // 前沿身后的余光\n" +
-            "  float a = inten * (edge + active * amp * (band * 0.55 + trail));\n" +
+            "  float2 q = abs(p) / (size * 0.5);                                // 归一化：0 中心 → 1 边缘\n" +
+            "  float m = pow(pow(q.x, 3.0) + pow(q.y, 3.0), 1.0 / 3.0);         // 超椭圆距离：等值线圆润，没有直角\n" +
+            "  float rim = exp(-n * 4.5);                                       // 贴边亮带（按像素距离，四边一样厚）\n" +
+            "  float body = pow(clamp(m, 0.0, 1.0), 2.2);                       // 向内铺开的柔光，中心不留直角镂空\n" +
+            "  float breath = mix(1.0, amp, active);                            // 只做透明度渐显渐隐，不移动\n" +
+            "  float a = inten * (rim * 0.55 + body * 0.32) * (0.55 + 0.45 * breath);\n" +
             "  a = clamp(a, 0.0, 0.72);                                         // 上限，保证画面始终可读\n" +
             "  // 旋转边框 + 绕行高光\n" +
             "  float ring = 1.0 - smoothstep(bw - 1.0, bw + 0.6, d);\n" +
@@ -458,7 +459,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             boolean stopped = agent != null && agent.stopped;
             // 目标参数：边框旋转(度/秒)、闪烁周期(秒)、强度
             float tSpeed = st == 1 ? 72f : st == 2 ? 30f : 18f;
-            float tPeriod = st == 1 ? 1.8f : st == 2 ? 3f : 4.2f;
+            float tPeriod = st == 1 ? 2.6f : st == 2 ? 3.6f : 4.8f;   // 呼吸周期（秒）
             float tInten = stopped ? 0.8f : st == 1 ? 1f : st == 2 ? 0.7f : 0.45f;
             int[] tgt = palette(stopped, st);
             if (!inited) { System.arraycopy(tgt, 0, cur, 0, cur.length); inited = true; }
@@ -483,7 +484,6 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
                 s.setFloatUniform("bw", dp(2.4f));
                 s.setFloatUniform("rot", rot / 360f);
                 s.setFloatUniform("rot2", (rot * 1.6f / 360f) % 1f);
-                s.setFloatUniform("wave", wave);
                 s.setFloatUniform("amp", env);
                 s.setFloatUniform("inten", curInten);
                 s.setFloatUniform("active", curActive);
