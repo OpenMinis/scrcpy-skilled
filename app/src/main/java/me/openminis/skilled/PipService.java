@@ -488,7 +488,8 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         Log.i(T, "closed by user");
         if (agent != null) agent.closedByUser = true;
         if (client != null) { client.stop(); client = null; }
-        ui.postDelayed(() -> { stopForeground(true); stopSelf(); }, 300);   // give the agent a moment to read the closed state
+        // give the agent a moment to read closed=true, then stop the service; onDestroy() ends the process
+        ui.postDelayed(() -> { stopForeground(true); stopSelf(); }, 600);
     }
 
     @Override public void onDestroy() {
@@ -497,6 +498,10 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         if (agent != null) agent.stop();
         if (client != null) client.stop();
         if (root != null) try { wm.removeView(root); } catch (Throwable e) {}
+        // The app has no UI and nothing else to keep alive: end the process so no idle threads/state linger
+        // (a stopped service otherwise leaves a cached process with ~25 threads and stale in-memory state).
+        // Delayed slightly so the system can finish tearing the service down cleanly.
+        new Handler(Looper.getMainLooper()).postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 300);
     }
 
     // ======================= glow + rotating rainbow border =======================

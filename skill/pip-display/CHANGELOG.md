@@ -2,6 +2,9 @@
 
 > **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 pip-display 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
 
+## 0.6.8
+- Closing the second screen (×) now fully exits the app process: no lingering background process, threads, or open agent port. Verified: after closing, app pid=none, scrcpy server/bridge gone, virtual display gone, port 28080 closed; starting again works.
+
 ## 0.6.7
 - Long-press 1s (stationary) is now the ONLY way to take over — light taps, one-finger drags and two-finger pinches never take over, in both AI-working and standby states (8/8 gesture tests pass on Pixel 6)
 - Two-finger pinch resizes and follows the fingers (the point under your fingers stays under them); window size clamped to 120dp … 85% of screen
