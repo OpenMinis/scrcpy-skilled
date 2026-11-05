@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一键：停旧进程 -> 启 scrcpy server(new_display) -> 启 TCP 桥 -> 拉起悬浮窗。需设备已 adb 连接。
+# One-shot: stop old processes -> start scrcpy server (new_display) -> start TCP bridge -> launch floating window. Requires an adb-connected device.
 cd "$(dirname "$0")/.."; A=scripts/adb-safe.sh
 $A shell 'am force-stop me.openminis.skilled'
 $A shell 'for p in $(ps -A -o PID,ARGS | grep -E "scrcpy.Server|skilled.Bridge" | grep -v grep | tr -s " " | cut -d" " -f2); do kill $p; done'

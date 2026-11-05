@@ -1,5 +1,5 @@
 #!/bin/sh
-# 停止副屏（server/桥/悬浮窗）。虚拟屏随 server 销毁，其中的 App 会回落到主屏。
+# Stop the secondary display (server/bridge/floating window). The virtual display is destroyed with the server; its apps fall back to the main screen.
 . "$(dirname "$0")/common.sh"; ensure_adb >/dev/null 2>&1 || exit 0
 adbx shell "am stopservice $PKG/.PipService >/dev/null 2>&1; am force-stop $PKG"
 PIDS=$(adbx shell "ps -A -o PID,ARGS" | grep -E 'scrcpy\.Server|skilled\.Bridge' | grep -v grep | awk '{print $1}')

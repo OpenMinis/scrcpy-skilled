@@ -21,23 +21,26 @@ import android.widget.TextView;
 import java.util.Map;
 
 /**
- * 主屏悬浮小窗。
- * 布局（全部叠在画面之上，不占额外高度）：
- *   card(圆角裁剪) ─ TextureView 副屏画面
- *                  ├ GlowView：由外向内的渐变光晕 + 旋转彩虹边框
- *                  ├ header：状态点 + 动态标题（无底色；拖动窗口 / 双指缩放）
- *                  ├ hint：中央「点击任意位置接管」，与光晕同步闪烁
- *                  ├ 右上角：红色「停止」/ 绿色「交还 AI」
- *                  └ 右下角：小号半透明缩放手柄
- *   arrow：贴边折叠后的箭头拉手
+ * Floating mini window on the main screen.
+ * Layout (everything overlays the video, no extra height):
+ *   card (rounded clip) ─ TextureView secondary-display video
+ *                  ├ GlowView: outside-in gradient glow + rotating rainbow border
+ *                  ├ header: status dot + dynamic title (no background; drag to move / pinch to resize)
+ *                  ├ hint: centered "tap anywhere to take over", pulses with the glow
+ *                  ├ top-right: red "Stop" / green "Hand back to AI"
+ *                  └ bottom-right: small translucent resize handle
+ *   arrow: pull tab shown when docked to an edge
  */
 public class PipService extends Service implements TextureView.SurfaceTextureListener, ScrcpyClient.Listener {
     static final String T = "SKILLED";
     static final int HEADER_DP = 30, RADIUS_DP = 20, SNAP_DP = 28, TAB_DP = 22;
+    static final long HOLD_MS = 1000;          // long-press duration to take over while AI is acting
+    static final int BAR_DP = 30;              // unified height for all top-bar controls (title pill, round buttons, pills)
 
     WindowManager wm; WindowManager.LayoutParams lp;
     FrameLayout root, card; TextureView sv; Surface surf;
-    GlowView glow; LinearLayout header, stopPill, resumePill; TextView label, hint; View dot, handle; ArrowTab arrow;
+    GlowView glow; LinearLayout header, stopPill, resumePill, closeBtn; TextView label, hint; View dot, handle; ArrowTab arrow;
+    HoldRing holdRing; long closeArmedAt; LinearLayout topRight;
     volatile ScrcpyClient client; AgentServer agent; int port = 27183;
     volatile int vw = 540, vh = 960; volatile boolean hidden;
     int winX = 20, winY = 300, contentW, docked; float dens; String lastLabel = "";
@@ -56,8 +59,8 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         if (i != null) { port = i.getIntExtra("port", port); winX = i.getIntExtra("x", winX); winY = i.getIntExtra("y", winY); wdp = i.getIntExtra("w", wdp); }
         if (sv != null) return START_STICKY;
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        nm.createNotificationChannel(new NotificationChannel("pip", "pip", NotificationManager.IMPORTANCE_LOW));
-        startForeground(1, new Notification.Builder(this, "pip").setContentTitle("scrcpy-skilled").setSmallIcon(android.R.drawable.ic_menu_view).build());
+        nm.createNotificationChannel(new NotificationChannel("pip", getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW));
+        startForeground(1, new Notification.Builder(this, "pip").setContentTitle(getString(R.string.notif_title)).setSmallIcon(android.R.drawable.ic_menu_view).build());
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         contentW = dpi(wdp);
         agent = new AgentServer(this);
@@ -74,7 +77,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         return START_STICKY;
     }
 
-    // ======================= UI 构建 =======================
+    // ======================= UI construction =======================
     void buildUi() {
         root = new FrameLayout(this);
 
@@ -83,38 +86,71 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         card.setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(RADIUS_DP)); }
         });
-        card.setClipToOutline(true);                       // TextureView 可被圆角裁剪（SurfaceView 不行）
+        card.setClipToOutline(true);                       // TextureView can be clipped to rounded corners (SurfaceView cannot)
         root.addView(card, match());
 
-        // ① 副屏画面
+        // ① secondary-display video
         sv = new TextureView(this);
         sv.setSurfaceTextureListener(this);
-        // AI 操作中：整块画面 = 悬浮窗的拖动区。拖动 → 移动窗口（松手靠边则吸附折叠）；轻点 → 接管。都不传给副屏。
-        // 非 AI 操作中（待命 / 人已接管）：触摸正常传给副屏。
+        // While AI is acting: the whole view only adjusts the window — one-finger drag = move (snaps/docks at edges on release), pinch = resize,
+        //          1s stationary long-press = human takeover (progress ring while held). Taps do nothing and are not forwarded.
+        // When AI is not acting (idle / human in control): touches are forwarded to the secondary display.
         final float[] dgr = new float[5];          // downRawX, downRawY, winX0, winY0, moved
         final boolean[] eat = {false};
+        final float[] pinch = new float[8];        // span, w, focusX, focusY (screen), winScreenX, winScreenY, parentOffX, parentOffY
+        final Runnable takeoverByHold = () -> {
+            if (agent != null && !agent.held()) {                // works whether AI is acting or idle
+                agent.setTakeover(true); holdRing.done(); updateUi();
+            }
+        };
         sv.setOnTouchListener((v, e) -> {
             if (docked != 0) return true;
             int act = e.getActionMasked();
             if (act == MotionEvent.ACTION_DOWN) {
-                eat[0] = agent != null && agent.uiState() == 1 && !agent.held();
+                // Until the human holds control (AI working OR idle), the video area only moves/resizes the window;
+                // the ONLY way to take over is a stationary 1s long-press. Nothing is forwarded to the phone.
+                eat[0] = agent != null && !agent.held();
                 dgr[0] = e.getRawX(); dgr[1] = e.getRawY(); dgr[2] = winX; dgr[3] = winY; dgr[4] = 0;
+                if (eat[0]) { ui.postDelayed(takeoverByHold, HOLD_MS); holdRing.start(e.getX(), e.getY(), HOLD_MS); }
             }
             if (eat[0]) {
+                // Pinch = our own span tracking (ScaleGestureDetector ignores spans < ~27mm, i.e. most pinches on a small window).
+                boolean multi = e.getPointerCount() > 1;
+                if (multi) {
+                    if (dgr[4] != 2) { dgr[4] = 2; ui.removeCallbacks(takeoverByHold); holdRing.cancel(); }   // second finger: resize, never takeover
+                    if (act == MotionEvent.ACTION_POINTER_DOWN || pinch[0] <= 0) pinchUpdate(e, pinch, true);
+                    else if (act == MotionEvent.ACTION_MOVE) pinchUpdate(e, pinch, false);
+                }
                 switch (act) {
                     case MotionEvent.ACTION_MOVE:
-                        if (dgr[4] == 0 && Math.hypot(e.getRawX() - dgr[0], e.getRawY() - dgr[1]) > dp(8)) dgr[4] = 1;
+                        if (multi) break;
+                        if (dgr[4] != 1 && Math.hypot(e.getRawX() - dgr[0], e.getRawY() - dgr[1]) > dp(8)) {
+                            dgr[4] = 1; ui.removeCallbacks(takeoverByHold); holdRing.cancel();   // finger moved: it's a drag
+                            dgr[0] = e.getRawX(); dgr[1] = e.getRawY(); dgr[2] = winX; dgr[3] = winY;
+                        }
                         if (dgr[4] == 1) { winX = (int) (dgr[2] + e.getRawX() - dgr[0]); winY = (int) (dgr[3] + e.getRawY() - dgr[1]); relayout(); }
                         break;
-                    case MotionEvent.ACTION_UP:
-                        if (dgr[4] == 1) maybeDock(); else { agent.setTakeover(true); updateUi(); }
-                        eat[0] = false; break;
-                    case MotionEvent.ACTION_CANCEL:
-                        if (dgr[4] == 1) maybeDock();
+                    case MotionEvent.ACTION_POINTER_UP:                  // pinch ended; the remaining finger may start a drag (needs real movement)
+                        pinch[0] = 0;
+                        int keep = e.getActionIndex() == 0 ? 1 : 0;
+                        dgr[0] = e.getRawX(keep); dgr[1] = e.getRawY(keep); dgr[2] = winX; dgr[3] = winY;
+                        break;
+                    case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
+                        ui.removeCallbacks(takeoverByHold); holdRing.cancel(); pinch[0] = 0;
+                        if (dgr[4] == 1) maybeDock();                     // only snap/dock after an actual drag
                         eat[0] = false; break;
                 }
                 return true;
             }
+            // Human holds control: one finger is forwarded to the phone; two fingers resize the window (not forwarded)
+            if (e.getPointerCount() > 1) {
+                if (act == MotionEvent.ACTION_POINTER_DOWN || pinch[0] <= 0) {
+                    pinchUpdate(e, pinch, true);
+                    if (client != null) client.touch(1, -2L, 0, 0, vw, vh, 0f);   // release the first finger on the phone
+                } else if (act == MotionEvent.ACTION_MOVE) pinchUpdate(e, pinch, false);
+                return true;
+            }
+            if (pinch[0] > 0) { if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) pinch[0] = 0; return true; }  // swallow the tail of a pinch
             if (agent != null) agent.humanTouched();
             if (client == null) return true;
             int a = act > 2 ? 1 : act;                        // 0 down, 1 up, 2 move
@@ -124,15 +160,19 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         });
         card.addView(sv, match());
 
-        // ② 光晕 + 边框（不消费触摸，事件落到画面）
+        // ② glow + border (does not consume touches; events fall through to the video)
         glow = new GlowView(this);
         card.addView(glow, match());
 
-        // ③ 标题：无底色，叠在画面顶部；拖动窗口、双指缩放
+        // long-press takeover ring: appears under the finger, takes over when full after 1s; disappears on release/move
+        holdRing = new HoldRing(this);
+        card.addView(holdRing, match());
+
+        // ③ title: no background, overlaid at top; drag to move, pinch to resize
         header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL); header.setGravity(Gravity.CENTER_VERTICAL);
         header.setBackground(glassPill());
-        header.setPadding(0, dpi(4), dpi(11), dpi(4));
+        header.setPadding(0, 0, dpi(11), 0);              // height fixed to BAR_DP below; text centered by gravity
         dot = new View(this);
         GradientDrawable dg = new GradientDrawable(); dg.setShape(GradientDrawable.OVAL); dg.setColor(0xFF4F8CFF); dot.setBackground(dg);
         LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dpi(7), dpi(7)); dl.leftMargin = dpi(10); dl.rightMargin = dpi(6);
@@ -156,30 +196,48 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
                 default: return true;
             }
         });
-        FrameLayout.LayoutParams hl = wrap(Gravity.TOP | Gravity.LEFT);
+        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpi(BAR_DP), Gravity.TOP | Gravity.LEFT);
         hl.topMargin = dpi(8); hl.leftMargin = dpi(10);
         card.addView(header, hl);
 
-        // ④ 中央提示：与光晕同一节奏闪烁；本身不可点击（点击由画面处理）
-        hint = new TextView(this);
-        hint.setText("点击任意位置接管"); hint.setTextColor(Color.WHITE); hint.setTextSize(16); hint.setTypeface(Typeface.DEFAULT_BOLD);
-        hint.setLetterSpacing(0.08f); hint.setSingleLine(true); hint.setIncludeFontPadding(false);
-        hint.setShadowLayer(dp(8), 0, 0, 0xCCB46BFF);
-        hint.setBackground(glassPill()); hint.setPadding(dpi(16), dpi(9), dpi(16), dpi(9));
+        // ④ center hint: plain text (no capsule), thin dark outline + soft shadow so it reads on any background;
+        //    pulses in sync with the glow; not clickable itself (taps handled by the video view)
+        hint = new OutlinedText(this);
+        hint.setText(R.string.hold_to_take_over); hint.setTextColor(Color.WHITE); hint.setTextSize(16); hint.setTypeface(Typeface.DEFAULT_BOLD);
+        hint.setLetterSpacing(0.04f); hint.setMaxLines(2); hint.setGravity(Gravity.CENTER); hint.setIncludeFontPadding(false);
+        hint.setShadowLayer(dp(6), 0, 0, 0x99000000);
+        hint.setPadding(dpi(4), dpi(4), dpi(4), dpi(4));
         hint.setVisibility(View.GONE);
-        card.addView(hint, wrap(Gravity.CENTER));
+        FrameLayout.LayoutParams hintLp = wrap(Gravity.CENTER); hintLp.leftMargin = hintLp.rightMargin = dpi(14);
+        card.addView(hint, hintLp);                           // side margins → long text (e.g. English) wraps instead of clipping
 
-        // ⑤ 右上角：停止 = 红色圆形图标按钮；交还 AI = 绿色胶囊
+        // ⑤ top-right: AI acting = red round Stop; taken over/stopped = green "Hand back to AI";
+        //          AI idle / taken over = gray round "Close display" (first tap turns red to confirm; tap again within 3s to close)
         stopPill = makeRoundButton(3, 0xF2EF4444, 0xFFFCA5A5);
-        resumePill = makePill("交还 AI", 2, 0xEB16A34A, 0xFF86EFAC);
+        resumePill = makePill(getString(R.string.give_back), 2, 0xEB16A34A, 0xFF86EFAC);
+        closeBtn = makeRoundButton(4, 0xCC2A2D40, 0x88FFFFFF);
+        closeBtn.setContentDescription(getString(R.string.cd_close));
         stopPill.setOnClickListener(v -> { agent.stopByUser(); updateUi(); });
         resumePill.setOnClickListener(v -> { agent.setTakeover(false); updateUi(); });
-        for (View b : new View[]{stopPill, resumePill}) {
-            FrameLayout.LayoutParams bl = wrap(Gravity.TOP | Gravity.RIGHT); bl.topMargin = dpi(8); bl.rightMargin = dpi(10);
-            b.setVisibility(View.GONE); card.addView(b, bl);
+        closeBtn.setOnClickListener(v -> {
+            long now = System.currentTimeMillis();
+            if (now - closeArmedAt < 3000) { closeAll(); return; }
+            closeArmedAt = now; armClose(true);
+            ui.postDelayed(() -> { if (System.currentTimeMillis() - closeArmedAt >= 3000) armClose(false); }, 3050);
+        });
+        topRight = new LinearLayout(this);
+        topRight.setOrientation(LinearLayout.HORIZONTAL); topRight.setGravity(Gravity.CENTER_VERTICAL);
+        for (View b : new View[]{resumePill, stopPill, closeBtn}) {
+            boolean round = b != resumePill;                 // round icon buttons are BAR_DP × BAR_DP; pills are BAR_DP tall
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(round ? dpi(BAR_DP) : ViewGroup.LayoutParams.WRAP_CONTENT, dpi(BAR_DP));
+            bl.leftMargin = dpi(6);
+            b.setVisibility(View.GONE); topRight.addView(b, bl);
         }
+        FrameLayout.LayoutParams tr = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpi(BAR_DP), Gravity.TOP | Gravity.RIGHT);
+        tr.topMargin = dpi(8); tr.rightMargin = dpi(10);     // same top margin + height as the title pill → aligned
+        card.addView(topRight, tr);
 
-        // ⑥ 右下角缩放手柄：小、半透明、贴角
+        // ⑥ bottom-right resize handle: small, translucent, in the corner
         handle = new ResizeHandle(this);
         FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dpi(22), dpi(22), Gravity.BOTTOM | Gravity.RIGHT);
         card.addView(handle, rl);
@@ -192,12 +250,12 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             }
         });
 
-        // ⑦ 贴边折叠后的箭头拉手（在 card 外，折叠时 card 隐藏）
+        // ⑦ pull tab when docked (outside card; card is hidden while docked)
         arrow = new ArrowTab(this);
         arrow.setVisibility(View.GONE);
         root.addView(arrow, new FrameLayout.LayoutParams(dpi(TAB_DP), dpi(72), Gravity.CENTER_VERTICAL | Gravity.RIGHT));
         final float[] ad = new float[3];
-        arrow.setOnTouchListener((v, e) -> {              // 点击展开；上下拖动可沿边缘移动
+        arrow.setOnTouchListener((v, e) -> {              // tap to expand; drag vertically to move along the edge
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN: ad[0] = e.getRawY(); ad[1] = winY; ad[2] = 0; return true;
                 case MotionEvent.ACTION_MOVE:
@@ -209,23 +267,23 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         });
     }
 
-    /** 玻璃胶囊：半透明暗底 + 由上到下渐变（顶部微亮）+ 细白描边，模拟毛玻璃 */
+    /** Glass capsule: translucent dark fill + top-to-bottom gradient (slightly lighter top) + thin white stroke, frosted-glass look */
     GradientDrawable glassPill() {
         GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x8C3A3F5C, 0x99141625});
         g.setCornerRadius(dp(40)); g.setStroke(Math.max(1, dpi(0.8f)), 0x55FFFFFF);
         return g;
     }
 
-    /** 圆形图标按钮（无文字）：实心圆底 + 细描边 + 居中白色图标 */
+    /** Round icon button (no text): solid circle + thin stroke + centered white icon */
     LinearLayout makeRoundButton(int icon, int fill, int stroke) {
         LinearLayout l = new LinearLayout(this);
         l.setGravity(Gravity.CENTER);
-        int size = dpi(30);
+        int size = dpi(BAR_DP);
         l.setMinimumWidth(size); l.setMinimumHeight(size);
         GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{lighten(fill), fill});
         g.setShape(GradientDrawable.OVAL); g.setStroke(Math.max(1, dpi(0.8f)), stroke);
         l.setBackground(g);
-        l.setContentDescription("停止 AI");
+        l.setContentDescription(getString(icon == 4 ? R.string.cd_close : R.string.cd_stop));
         l.addView(new IconView(this, icon), new LinearLayout.LayoutParams(dpi(14), dpi(14)));
         return l;
     }
@@ -233,13 +291,13 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
     LinearLayout makePill(String text, int icon, int fill, int stroke) {
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL);
-        l.setPadding(dpi(9), dpi(5), dpi(11), dpi(5));
+        l.setPadding(dpi(9), 0, dpi(11), 0);              // height comes from BAR_DP layout params; content centered
         GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{lighten(fill), fill}); g.setCornerRadius(dp(40)); g.setStroke(Math.max(1, dpi(0.8f)), stroke);
         l.setBackground(g);
-        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(dpi(16), dpi(16)); il.rightMargin = dpi(5);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(dpi(13), dpi(13)); il.rightMargin = dpi(5);
         l.addView(new IconView(this, icon), il);
         TextView tv = new TextView(this);
-        tv.setText(text); tv.setTextColor(Color.WHITE); tv.setTextSize(12); tv.setTypeface(Typeface.DEFAULT_BOLD); tv.setSingleLine(true); tv.setIncludeFontPadding(false);
+        tv.setText(text); tv.setTextColor(Color.WHITE); tv.setTextSize(10.5f); tv.setTypeface(Typeface.DEFAULT_BOLD); tv.setSingleLine(true); tv.setIncludeFontPadding(false);
         l.addView(tv);
         return l;
     }
@@ -250,19 +308,52 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
-    // ======================= 尺寸 / 位置 / 吸附 =======================
+    // ======================= size / position / docking =======================
     int screenW() { return getResources().getDisplayMetrics().widthPixels; }
     int screenH() { return getResources().getDisplayMetrics().heightPixels; }
 
+    static final int MIN_W_DP = 120;            // window never smaller than this
+    static final float MAX_W_FRAC = 0.85f;      // window never wider/taller than this fraction of the screen
+    static final float CHROME_MIN = 0.75f, CHROME_MAX = 1.15f;   // clamp for scaling buttons/title/hint with the window
+
+    /** Two-finger resize that "sticks" to the fingers: scales by span ratio around the finger midpoint and
+     *  translates with it, so the content point under the fingers stays under the fingers (like a photo viewer).
+     *  Finger coords are raw screen px; lp.x/lp.y live in the window's parent frame (offset by status bar etc.),
+     *  so we convert using the window's actual on-screen origin at gesture start. */
+    void pinchUpdate(MotionEvent e, float[] p, boolean begin) {
+        float x0 = e.getRawX(0), y0 = e.getRawY(0), x1 = e.getRawX(1), y1 = e.getRawY(1);
+        float span = Math.max(1f, (float) Math.hypot(x0 - x1, y0 - y1));
+        float fx = (x0 + x1) / 2f, fy = (y0 + y1) / 2f;
+        if (begin || p[0] <= 0) {
+            int[] loc = new int[2]; root.getLocationOnScreen(loc);
+            // p[4],p[5] = window's on-screen origin; p[6],p[7] = parent-frame offset (screen - lp)
+            p[0] = span; p[1] = contentW; p[2] = fx; p[3] = fy; p[4] = loc[0]; p[5] = loc[1];
+            p[6] = loc[0] - lp.x; p[7] = loc[1] - lp.y;
+            return;
+        }
+        contentW = clampW((int) (p[1] * span / p[0]));               // no relayout yet: one window update per frame
+        float k = contentW / p[1];                                   // actual applied scale after clamping
+        // keep the window point that was under the start midpoint under the current midpoint (screen coords)
+        float sx = fx - (p[2] - p[4]) * k, sy = fy - (p[3] - p[5]) * k;
+        winX = Math.round(sx - p[6]);
+        winY = Math.round(sy - p[7]);
+        relayout();
+    }
+
+    int clampW(int w) {
+        int maxByW = (int) (screenW() * MAX_W_FRAC);
+        int maxByH = (int) (screenH() * MAX_W_FRAC * vw / Math.max(1, vh));
+        return Math.max(dpi(MIN_W_DP), Math.min(Math.min(maxByW, maxByH), w));
+    }
+
     void setContentWidth(int w) {
-        int maxW = Math.min(screenW(), (int) (screenH() * 0.92f * vw / Math.max(1, vh)));
-        contentW = Math.max(dpi(110), Math.min(maxW, w));
+        contentW = clampW(w);
         relayout();
     }
 
     int targetX() {
-        if (docked == -1) return -(lp.width - dpi(TAB_DP));      // 只露出左边缘一条（拉手）
-        if (docked == 1) return screenW() - dpi(TAB_DP);          // 只露出右边缘一条
+        if (docked == -1) return -(lp.width - dpi(TAB_DP));      // only a strip shows at the left edge (pull tab)
+        if (docked == 1) return screenW() - dpi(TAB_DP);          // only a strip shows at the right edge
         return winX;
     }
 
@@ -274,10 +365,24 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         lp.x = hidden ? -lp.width - 50 : targetX(); lp.y = winY;
         if (hidden) lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; else lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         applyDockedUi();
+        scaleChrome();
         try { wm.updateViewLayout(root, lp); } catch (Throwable e) { Log.w(T, "relayout " + e); }
     }
 
-    /** 松手时：靠近左右边缘就折叠吸附，否则留在屏内 */
+    /** Scale overlay controls with the window so they stay proportional when the window is resized.
+     *  Default width (168dp) = 1.0; clamped to [0.6, 1.25]. Each control is scaled around the corner it's pinned to. */
+    void scaleChrome() {
+        if (header == null) return;
+        float s = Math.max(CHROME_MIN, Math.min(CHROME_MAX, contentW / dp(168)));
+        header.setPivotX(0); header.setPivotY(0); header.setScaleX(s); header.setScaleY(s);
+        if (topRight != null) {
+            topRight.setPivotX(topRight.getWidth() > 0 ? topRight.getWidth() : dp(BAR_DP)); topRight.setPivotY(0);
+            topRight.setScaleX(s); topRight.setScaleY(s);
+        }
+        if (hint != null) { hint.setScaleX(s); hint.setScaleY(s); }       // centered: default pivot (center) is correct
+    }
+
+    /** On release: dock if near the left/right edge, otherwise stay on screen */
     void maybeDock() {
         int sw = screenW(), snap = dpi(SNAP_DP);
         if (winX < snap) docked = -1;
@@ -288,7 +393,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
 
     void undock() {
         int gap = dpi(12);
-        winX = docked == 1 ? screenW() - lp.width - gap : gap;   // 离边缘一点，避免立刻再次吸附
+        winX = docked == 1 ? screenW() - lp.width - gap : gap;   // keep a small gap from the edge to avoid re-docking immediately
         docked = 0; animateTo();
     }
 
@@ -312,7 +417,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         arrow.setLayoutParams(al); arrow.invalidate();
     }
 
-    /** 来自 /window 接口（主线程）：x/y(px)、w(dp)、hide */
+    /** From the /window API (main thread): x/y (px), w (dp), hide */
     void applyWindow(Map<String, String> m) {
         if (m.containsKey("x")) { winX = Integer.parseInt(m.get("x")); docked = 0; }
         if (m.containsKey("y")) winY = Integer.parseInt(m.get("y"));
@@ -321,23 +426,26 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         setContentWidth(contentW);
     }
 
-    // ======================= 状态 → 界面 =======================
+    // ======================= state → UI =======================
     final Runnable refresh = new Runnable() { @Override public void run() { updateUi(); ui.postDelayed(this, 250); } };
 
     void updateUi() {
         if (agent == null || label == null) return;
-        int st = agent.uiState();                 // 0 待命  1 AI 操作中  2 人类操作/已持有
+        int st = agent.uiState();                 // 0 idle  1 AI acting  2 human acting/holding
         boolean held = agent.held(), stopped = agent.stopped;
         String t = agent.title == null ? "" : agent.title.trim();
-        String text = stopped ? "已停止 AI" : held ? "你已接管" : st == 1 ? (t.isEmpty() ? "AI 操作中" : t) : st == 2 ? "你在操作" : "AI 待命";
+        String text = getString(stopped ? R.string.state_stopped : held ? R.string.state_taken : st == 1 ? R.string.state_working : st == 2 ? R.string.state_human : R.string.state_idle);
+        if (st == 1 && !held && !stopped && !t.isEmpty()) text = t;                      // AI acting: show the task title set by the agent
+        if (System.currentTimeMillis() - closeArmedAt < 3000) text = getString(R.string.confirm_close);   // keep the prompt while close confirmation is pending
         if (!text.equals(lastLabel)) { lastLabel = text; label.setText(text); }
         ((GradientDrawable) dot.getBackground()).setColor(stopped ? 0xFFEF4444 : st == 2 ? 0xFF34D399 : st == 1 ? 0xFFB46BFF : 0xFF4F8CFF);
         boolean show = !hidden && docked == 0, ai = st == 1 && !held;
-        hint.setVisibility(ai && show ? View.VISIBLE : View.GONE);
+        hint.setVisibility(!held && show ? View.VISIBLE : View.GONE);   // shown whenever a long-press would take over
         stopPill.setVisibility(ai && show ? View.VISIBLE : View.GONE);
         resumePill.setVisibility(held && show ? View.VISIBLE : View.GONE);
-        float sc = Math.max(0.7f, Math.min(1f, contentW / dp(190)));
-        if (hint.getScaleX() != sc) { hint.setScaleX(sc); hint.setScaleY(sc); }
+        header.setVisibility(held ? View.GONE : View.VISIBLE);              // the green pill already says "taken over"; avoid two overlapping pills
+        closeBtn.setVisibility(!ai && show ? View.VISIBLE : View.GONE);   // display can be closed when idle / taken over / stopped
+        scaleChrome();                                   // topRight's width changes with which button is visible → re-pin pivot
     }
 
     // ======================= Surface / scrcpy =======================
@@ -356,7 +464,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
     @Override public void onVideoSize(int w, int h) { vw = w; vh = h; ui.post(() -> setContentWidth(contentW)); }
     @Override public void onClosed(String why) {
         Log.w(T, "closed: " + why);
-        // 自愈：桥晚于小窗启动或被重启时连接会失败；surface 还在就重连
+        // self-heal: connecting fails if the bridge starts after the window or is restarted; reconnect while the surface is alive
         ui.postDelayed(() -> { if (surf != null && surf.isValid() && (client == null || !client.running)) restartClient(); }, 1500);
     }
     void restartClient() {
@@ -364,6 +472,25 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         client = new ScrcpyClient("127.0.0.1", port, surf, this);
         client.start();
     }
+    /** Enter/exit the close button's "pending confirm" state: turn red and show a prompt */
+    void armClose(boolean armed) {
+        if (closeBtn == null) return;
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                armed ? new int[]{lighten(0xF2EF4444), 0xF2EF4444} : new int[]{lighten(0xCC2A2D40), 0xCC2A2D40});
+        g.setShape(GradientDrawable.OVAL); g.setStroke(Math.max(1, dpi(0.8f)), armed ? 0xFFFCA5A5 : 0x88FFFFFF);
+        closeBtn.setBackground(g);
+        if (armed) { label.setText(R.string.confirm_close); lastLabel = ""; }
+    }
+
+    /** User tapped "Close display": notify the agent (closed=true in /status), then stop the service and remove the window.
+     *  The secondary display is destroyed when the scrcpy server disconnects; the skill's stop.sh cleans up the server. */
+    void closeAll() {
+        Log.i(T, "closed by user");
+        if (agent != null) agent.closedByUser = true;
+        if (client != null) { client.stop(); client = null; }
+        ui.postDelayed(() -> { stopForeground(true); stopSelf(); }, 300);   // give the agent a moment to read the closed state
+    }
+
     @Override public void onDestroy() {
         ui.removeCallbacks(refresh);
         if (glow != null) glow.stopAnim();
@@ -372,13 +499,13 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         if (root != null) try { wm.removeView(root); } catch (Throwable e) {}
     }
 
-    // ======================= 光晕 + 旋转彩虹边框 =======================
+    // ======================= glow + rotating rainbow border =======================
     /**
-     * Android 13+：一个 AGSL 着色器在 GPU 上一次画完全部效果（每帧零分配）：
-     *   · 边缘光：彩虹色从四周边缘向中心平滑衰减，覆盖大半个画面；
-     *   · 由外到内的光波：AI 操作中每 1.6 秒一次，光从边缘涌入、向中心推进并淡出（循环无缝）；
-     *   · 旋转彩虹边框 + 绕行的白色高光。
-     * 中央提示文字与光波共用同一个亮度包络。低于 Android 13 时退化为旋转边框 + 简单边缘光。
+     * Android 13+: a single AGSL shader draws all effects on the GPU in one pass (zero allocations per frame):
+     *   · Edge glow: rainbow colors fade smoothly from the edges toward the center, covering most of the view;
+     *   · Outside-in light wave: every 1.6s while AI is acting, light flows in from the edges, moves toward the center and fades (seamless loop);
+     *   · Rotating rainbow border + an orbiting white highlight.
+     * The center hint text shares the wave's brightness envelope. Below Android 13 it falls back to a rotating border + simple edge glow.
      */
     static final String GLOW_AGSL =
             "uniform float2 size; uniform float radius; uniform float bw;\n" +
@@ -397,18 +524,18 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             "  return c; }\n" +
             "half4 main(float2 fc) {\n" +
             "  float2 p = fc - size * 0.5;\n" +
-            "  float d = max(0.0, -sdRR(p, size * 0.5, radius));            // 到边缘的距离（px）\n" +
-            "  float n = clamp(d / (min(size.x, size.y) * 0.5), 0.0, 1.0);   // 0=边缘 1=中心\n" +
+            "  float d = max(0.0, -sdRR(p, size * 0.5, radius));            // distance to edge (px)\n" +
+            "  float n = clamp(d / (min(size.x, size.y) * 0.5), 0.0, 1.0);   // 0=edge 1=center\n" +
             "  float ang = atan(p.y, p.x) / 6.2831853 + 0.5;\n" +
-            "  half3 col = pal(ang + rot + 0.12 * n);                          // 越往内颜色略微旋开，更有流动感\n" +
-            "  float2 q = abs(p) / (size * 0.5);                                // 归一化：0 中心 → 1 边缘\n" +
-            "  float m = pow(pow(q.x, 3.0) + pow(q.y, 3.0), 1.0 / 3.0);         // 超椭圆距离：等值线圆润，没有直角\n" +
-            "  float rim = exp(-n * 4.5);                                       // 贴边亮带（按像素距离，四边一样厚）\n" +
-            "  float body = pow(clamp(m, 0.0, 1.0), 2.2);                       // 向内铺开的柔光，中心不留直角镂空\n" +
-            "  float breath = mix(1.0, amp, active);                            // 只做透明度渐显渐隐，不移动\n" +
+            "  half3 col = pal(ang + rot + 0.12 * n);                          // hue shifts slightly inward for a flowing feel\n" +
+            "  float2 q = abs(p) / (size * 0.5);                                // normalized: 0 center → 1 edge\n" +
+            "  float m = pow(pow(q.x, 3.0) + pow(q.y, 3.0), 1.0 / 3.0);         // superellipse distance: rounded contours, no sharp corners\n" +
+            "  float rim = exp(-n * 4.5);                                       // bright edge band (by pixel distance, equal thickness on all sides)\n" +
+            "  float body = pow(clamp(m, 0.0, 1.0), 2.2);                       // soft glow spreading inward, no square hole in the center\n" +
+            "  float breath = mix(1.0, amp, active);                            // fade opacity in/out only, no movement\n" +
             "  float a = inten * (rim * 0.55 + body * 0.32) * (0.55 + 0.45 * breath);\n" +
-            "  a = clamp(a, 0.0, 0.72);                                         // 上限，保证画面始终可读\n" +
-            "  // 旋转边框 + 绕行高光\n" +
+            "  a = clamp(a, 0.0, 0.72);                                         // cap so the video stays readable\n" +
+            "  // rotating border + orbiting highlight\n" +
             "  float ring = 1.0 - smoothstep(bw - 1.0, bw + 0.6, d);\n" +
             "  float hl = pow(max(0.0, cos(6.2831853 * (ang - rot2))), 60.0);\n" +
             "  half3 rc = mix(pal(ang + rot), half3(1.0), half(hl * 0.85));\n" +
@@ -441,7 +568,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         }
         void stopAnim() { if (ticker != null) ticker.cancel(); }
 
-        int[] palette(boolean stopped, int st) {   // 首尾同色，色环闭合
+        int[] palette(boolean stopped, int st) {   // first and last colors match to close the ring
             if (stopped) return new int[]{0xFFEF4444, 0xFFF97316, 0xFFFB7185, 0xFFFBBF24, 0xFFE11D48, 0xFFF97316, 0xFFEF4444};
             if (st == 2) return new int[]{0xFF34D399, 0xFF22D3EE, 0xFF86EFAC, 0xFF2DD4BF, 0xFF4ADE80, 0xFF5EEAD4, 0xFF34D399};
             return new int[]{0xFF3D8BFF, 0xFFB45CFF, 0xFFFF4D8D, 0xFFFF9A3D, 0xFF38D9F5, 0xFF7C6CFF, 0xFF3D8BFF};
@@ -457,23 +584,23 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             float dt = last == 0 ? 0.016f : Math.min(0.1f, (now - last) / 1e9f); last = now; t += dt;
             int st = agent == null ? 0 : agent.uiState();
             boolean stopped = agent != null && agent.stopped;
-            // 目标参数：边框旋转(度/秒)、闪烁周期(秒)、强度
+            // targets: border rotation (deg/s), pulse period (s), intensity
             float tSpeed = st == 1 ? 72f : st == 2 ? 30f : 18f;
-            float tPeriod = st == 1 ? 2.6f : st == 2 ? 3.6f : 4.8f;   // 呼吸周期（秒）
+            float tPeriod = st == 1 ? 2.6f : st == 2 ? 3.6f : 4.8f;   // breathing period (s)
             float tInten = stopped ? 0.8f : st == 1 ? 1f : st == 2 ? 0.7f : 0.45f;
             int[] tgt = palette(stopped, st);
             if (!inited) { System.arraycopy(tgt, 0, cur, 0, cur.length); inited = true; }
-            float k = Math.min(1f, dt * 3f);                       // 约 0.35 秒平滑过渡
+            float k = Math.min(1f, dt * 3f);                       // ~0.35s smooth transition
             curSpeed += (tSpeed - curSpeed) * k; curPeriod += (tPeriod - curPeriod) * k; curInten += (tInten - curInten) * k;
             for (int i = 0; i < cur.length; i++) cur[i] = lerp(cur[i], tgt[i], k);
             cur[cur.length - 1] = cur[0];
             rot = (rot + curSpeed * dt) % 360f;
-            wave = (wave + dt / curPeriod) % 1f;                    // 连续相位，切换速度也不跳变
-            curActive += ((st == 1 ? 1f : 0.35f) - curActive) * k;  // 光波强度：操作中满额，其它状态弱一些
+            wave = (wave + dt / curPeriod) % 1f;                    // continuous phase, no jump when speed changes
+            curActive += ((st == 1 ? 1f : 0.35f) - curActive) * k;  // wave intensity: full while acting, weaker otherwise
 
             float w = getWidth(), h = getHeight(), r = dp(RADIUS_DP);
             if (w <= 0 || h <= 0) return;
-            // 光波亮度包络：前沿推进时先亮后暗，wave=0/1 时为 0 → 循环处无缝
+            // wave brightness envelope: brightens then dims as the front advances; 0 at wave=0/1 → seamless loop
             float env = (float) Math.sin(Math.PI * wave); env = env * env;
 
             if (rs != null) {
@@ -496,11 +623,11 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
                 drawFallback(c, w, h, r);
             }
 
-            // 中央文字与光波同步
-            if (hint != null && hint.getVisibility() == View.VISIBLE) hint.setAlpha(0.4f + 0.6f * env);
+            // center text: pulses with the glow while AI is acting; steady and dimmer when idle
+            if (hint != null && hint.getVisibility() == View.VISIBLE) hint.setAlpha(st == 1 ? 0.4f + 0.6f * env : 0.55f);
         }
 
-        /** Android 13 以下：旋转彩虹边框 + 绕行高光（着色器按需重建，不每帧分配矩阵） */
+        /** Below Android 13: rotating rainbow border + orbiting highlight (shader rebuilt on demand, no per-frame matrix allocation) */
         void drawFallback(Canvas c, float w, float h, float r) {
             boolean changed = fbRing == null;
             for (int i = 0; i < 7 && !changed; i++) if (fbCols[i] != cur[i]) changed = true;
@@ -512,7 +639,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             mx.setRotate(rot, w / 2f, h / 2f); fbRing.setLocalMatrix(mx);
             mx2.setRotate(rot * 1.6f, w / 2f, h / 2f); fbHl.setLocalMatrix(mx2);
             p.setShader(fbRing);
-            for (int i = 6; i >= 1; i--) {                          // 简易边缘光
+            for (int i = 6; i >= 1; i--) {                          // simple edge glow
                 p.setStrokeWidth(dp(6f) * i); p.setAlpha((int) (255 * curInten * 0.06f));
                 c.drawRoundRect(rc, r, r, p);
             }
@@ -527,8 +654,8 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         }
     }
 
-    // ======================= 小部件 =======================
-    /** 折叠后的箭头拉手：贴边一侧直边，外侧圆角 */
+    // ======================= widgets =======================
+    /** Docked pull tab: straight on the edge side, rounded on the outer side */
     class ArrowTab extends View {
         final Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG), ar = new Paint(Paint.ANTI_ALIAS_FLAG); int dir = -1; final Path pth = new Path(), ch = new Path();
         ArrowTab(android.content.Context c) {
@@ -542,13 +669,13 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
             float[] radii = dir == -1 ? new float[]{0, 0, r, r, r, r, 0, 0} : new float[]{r, r, 0, 0, 0, 0, r, r};
             pth.addRoundRect(new RectF(0, 0, w, h), radii, Path.Direction.CW);
             c.drawPath(pth, bg);
-            float cx = w / 2f, cy = h / 2f, a = dp(5), sgn = dir == -1 ? 1f : -1f;   // 贴左→箭头朝右
+            float cx = w / 2f, cy = h / 2f, a = dp(5), sgn = dir == -1 ? 1f : -1f;   // docked left → arrow points right
             ch.reset(); ch.moveTo(cx - sgn * a * 0.5f, cy - a); ch.lineTo(cx + sgn * a * 0.5f, cy); ch.lineTo(cx - sgn * a * 0.5f, cy + a);
             c.drawPath(ch, ar);
         }
     }
 
-    /** 右下角缩放手柄：两道半透明细线 */
+    /** Bottom-right resize handle: two thin translucent lines */
     class ResizeHandle extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         ResizeHandle(android.content.Context c) { super(c); p.setColor(0x66FFFFFF); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(dp(1.4f)); p.setStrokeCap(Paint.Cap.ROUND); }
@@ -559,14 +686,74 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         }
     }
 
-    /** 胶囊图标：0 停止（圆环+方块），2 交还（圆环+三角） */
+    /** Capsule icon: 0 stop (ring + square), 2 hand back (ring + triangle) */
+    /** Long-press takeover ring: draws a filling ring under the finger; after 1s it briefly highlights and fades */
+    class HoldRing extends View {
+        final Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG), fg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float cx, cy; long startAt, dur; boolean active, finished; long finishedAt;
+        final RectF oval = new RectF();
+        HoldRing(android.content.Context c) {
+            super(c);
+            bg.setStyle(Paint.Style.STROKE); bg.setStrokeWidth(dp(4)); bg.setColor(0x55FFFFFF);
+            fg.setStyle(Paint.Style.STROKE); fg.setStrokeWidth(dp(4)); fg.setStrokeCap(Paint.Cap.ROUND); fg.setColor(0xFF34D399);
+            setClickable(false); setFocusable(false);
+        }
+        void start(float x, float y, long d) { cx = x; cy = y; dur = d; startAt = System.currentTimeMillis(); active = true; finished = false; invalidate(); }
+        void cancel() { active = false; finished = false; invalidate(); }
+        void done() { active = false; finished = true; finishedAt = System.currentTimeMillis(); invalidate(); }
+        @Override protected void onDraw(Canvas c) {
+            float r = dp(26);
+            oval.set(cx - r, cy - r, cx + r, cy + r);
+            if (active) {
+                long el = System.currentTimeMillis() - startAt;
+                if (el < 120) { postInvalidateOnAnimation(); return; }      // skip very short taps to avoid a flash
+                float f = Math.min(1f, (float) (el - 120) / Math.max(1, dur - 120));
+                c.drawCircle(cx, cy, r, bg);
+                c.drawArc(oval, -90, 360 * f, false, fg);
+                postInvalidateOnAnimation();
+            } else if (finished) {
+                float a = 1f - Math.min(1f, (System.currentTimeMillis() - finishedAt) / 350f);
+                if (a > 0) { fg.setAlpha((int) (255 * a)); c.drawCircle(cx, cy, r, fg); fg.setAlpha(255); postInvalidateOnAnimation(); }
+                else finished = false;
+            }
+        }
+    }
+
+    /** TextView with a thin dark outline: draws the text once as a stroke, then normally on top.
+     *  Keeps white text legible on any background without a capsule behind it. */
+    class OutlinedText extends TextView {
+        boolean stroking;
+        OutlinedText(android.content.Context c) { super(c); }
+        @Override public void invalidate() { if (!stroking) super.invalidate(); }   // setTextColor() inside onDraw must not re-trigger a draw
+        @Override protected void onDraw(Canvas c) {
+            android.text.TextPaint tp = getPaint();
+            int fill = getCurrentTextColor();
+            float sr = tp.getShadowLayerRadius(), sx = tp.getShadowLayerDx(), sy = tp.getShadowLayerDy(); int sc = tp.getShadowLayerColor();
+            stroking = true;
+            tp.setStyle(Paint.Style.STROKE); tp.setStrokeWidth(dp(1.6f)); tp.setStrokeJoin(Paint.Join.ROUND);
+            setTextColor(0x8C000000);                           // faint outline (≈55% black)
+            super.onDraw(c);                                     // pass 1: outline + shadow
+            tp.setStyle(Paint.Style.FILL); tp.clearShadowLayer();
+            setTextColor(fill);
+            super.onDraw(c);                                     // pass 2: white fill on top
+            tp.setShadowLayer(sr, sx, sy, sc);
+            stroking = false;
+        }
+    }
+
     class IconView extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); final int type; final Path path = new Path();
         IconView(android.content.Context c, int type) { super(c); this.type = type; p.setColor(Color.WHITE); }
         @Override protected void onDraw(Canvas c) {
             float w = getWidth(), h = getHeight();
             p.setStyle(Paint.Style.FILL);
-            if (type == 3) {                                   // 圆形按钮内：纯实心圆角方块
+            if (type == 4) {                                   // close: ×
+                p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(w * 0.16f); p.setStrokeCap(Paint.Cap.ROUND);
+                c.drawLine(w * 0.2f, h * 0.2f, w * 0.8f, h * 0.8f, p);
+                c.drawLine(w * 0.8f, h * 0.2f, w * 0.2f, h * 0.8f, p);
+                return;
+            }
+            if (type == 3) {                                   // inside round button: solid rounded square
                 c.drawRoundRect(new RectF(w * 0.12f, h * 0.12f, w * 0.88f, h * 0.88f), w * 0.18f, w * 0.18f, p);
                 return;
             }

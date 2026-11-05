@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Default (English). Translations: values-zh, values-zh-rTW, values-ja, values-ko. -->
+<resources>
+    <string name="app_name">Minis Second Screen</string>
+    <string name="notif_title">Minis second screen is running</string>
+    <string name="state_idle">AI standby</string>
+    <string name="state_working">AI working</string>
+    <string name="state_human">You are operating</string>
+    <string name="state_taken">You have control</string>
+    <string name="state_stopped">AI stopped</string>
+    <string name="hold_to_take_over">Press and hold to take over</string>
+    <string name="give_back">Hand back to AI</string>
+    <string name="confirm_close">Tap again to close</string>
+    <string name="cd_stop">Stop AI</string>
+    <string name="cd_close">Close second screen</string>
+    <string name="cd_expand">Expand</string>
+</resources>

@@ -1,6 +1,6 @@
 #!/bin/sh
-# 在副屏启动 App 并确认它真的在副屏前台：run-app.sh <包名>
-# 输出 JSON：{"ok":true,"display":N,"top":"<包名/Activity>"}；失败 {"ok":false,...} 并返回非 0
+# Launch an app on the secondary display and confirm it is really in the foreground there: run-app.sh <package>
+# Outputs JSON: {"ok":true,"display":N,"top":"<package/Activity>"}; on failure {"ok":false,...} and non-zero exit
 . "$(dirname "$0")/common.sh"; ensure_adb || exit $?
 [ -z "$1" ] && { echo '{"ok":false,"error":"缺少包名"}'; exit 2; }
 ID=$(cat "$STATE/display" 2>/dev/null)
@@ -10,8 +10,8 @@ agent "/start?pkg=$1" >/dev/null; echo >/dev/null
 TOP=""
 for i in 1 2 3 4 5 6 7 8; do
   sleep 1
-  # 在设备端过滤，只回传一行。不要在本机用 awk 提前 exit：dumpsys 输出很大，
-  # 管道读端关闭后 adb 会一直挂到超时（曾导致 run-app 卡几分钟）。
+  # Filter on the device and return only one line. Do not exit early with awk locally: dumpsys output is large,
+  # and adb hangs until timeout once the pipe reader closes (this once stalled run-app for minutes).
   TOP=$(adbx shell "dumpsys activity activities | grep -A12 '^Display #$ID ' | grep -m1 topResumedActivity" | sed 's/.*u0 //;s/ .*//' | tr -d '\r')
   case "$TOP" in $1*) echo "{\"ok\":true,\"display\":$ID,\"top\":\"$TOP\"}"; exit 0;; esac
 done

@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# 在设备上运行（由 start.sh 推送）：server <scid> <宽x高/dpi> | bridge <scid> <port>
+# Runs on the device (pushed by start.sh): server <scid> <WxH/dpi> | bridge <scid> <port>
 case "$1" in
 server)
   exec >/data/local/tmp/sc/server.log 2>&1

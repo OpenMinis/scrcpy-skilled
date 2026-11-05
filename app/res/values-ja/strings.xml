@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Minis サブ画面</string>
+    <string name="notif_title">Minis サブ画面を実行中</string>
+    <string name="state_idle">AI 待機中</string>
+    <string name="state_working">AI 操作中</string>
+    <string name="state_human">あなたが操作中</string>
+    <string name="state_taken">操作を引き継ぎました</string>
+    <string name="state_stopped">AI を停止しました</string>
+    <string name="hold_to_take_over">長押しで操作を引き継ぐ</string>
+    <string name="give_back">AI に戻す</string>
+    <string name="confirm_close">もう一度タップで閉じる</string>
+    <string name="cd_stop">AI を停止</string>
+    <string name="cd_close">サブ画面を閉じる</string>
+    <string name="cd_expand">展開</string>
+</resources>

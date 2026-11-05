@@ -1,6 +1,6 @@
 #!/bin/sh
-# 调用 agent 接口：agent.sh tap 100 200 | swipe x1 y1 x2 y2 [ms] | key 4 | text 你好 | start pkg | status | takeover 1|0
-#                  title "正在做什么" | version | resume | window x=.. y=.. w=.. | hide | show | shot [输出.png]
+# Call the agent API: agent.sh tap 100 200 | swipe x1 y1 x2 y2 [ms] | key 4 | text hello | start pkg | status | takeover 1|0
+#                  title "what I'm doing" | version | resume | window x=.. y=.. w=.. | hide | show | shot [out.png]
 . "$(dirname "$0")/common.sh"; ensure_adb || exit $?
 REF=${REF_W:-540}
 c=$1; shift

@@ -1,5 +1,5 @@
 #!/bin/sh
-# 安装/更新（幂等）：推送 jar、安装 APK、授予悬浮窗权限。输出 JSON，失败返回非 0。
+# Install/update (idempotent): push jars, install APK, grant overlay permission. Outputs JSON; non-zero exit on failure.
 . "$(dirname "$0")/common.sh"; ensure_adb || { echo '{"ok":false,"stage":"adb","hint":"设备未连接或未授权"}'; exit 3; }
 err() { echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\"}"; exit 1; }
 adbx shell "mkdir -p $DEV" || err push "无法写 $DEV"

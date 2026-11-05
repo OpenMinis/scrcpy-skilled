@@ -1,5 +1,5 @@
 #!/bin/bash
-# 不改子模块，编译 third_party/scrcpy/server -> build/scrcpy-server (dex jar)
+# Build third_party/scrcpy/server -> build/scrcpy-server (dex jar) without modifying the submodule
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SDK=${ANDROID_HOME:-/opt/android-sdk}
@@ -15,8 +15,8 @@ cat > $B/gen/com/genymobile/scrcpy/BuildConfig.java <<EOT
 package com.genymobile.scrcpy;
 public final class BuildConfig { public static final boolean DEBUG = false; public static final String VERSION_NAME = "$VER"; }
 EOT
-# aidl 是 x86 二进制，本机跑不了：用 shell/aidl-stubs 里的手写等价 Stub（有 aidl 时可替换）
-# 子模块保持只读：拷到构建目录，仅把 android-34 jar 里缺失的 VANILLA_ICE_CREAM 常量替换为字面量 35
+# aidl is an x86 binary and cannot run here: use the hand-written equivalent stubs in shell/aidl-stubs (replace when aidl is available)
+# Keep the submodule read-only: copy to the build dir and only replace the VANILLA_ICE_CREAM constant (missing from the android-34 jar) with the literal 35
 mkdir -p $B/src && cp -r $S/src/main/java/. $B/src/
 sed -i 's/Build.VERSION_CODES.VANILLA_ICE_CREAM/35/' $B/src/com/genymobile/scrcpy/AndroidVersions.java
 cd $B/src

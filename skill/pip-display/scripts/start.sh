@@ -1,9 +1,9 @@
 #!/bin/sh
-# 启动副屏（幂等、可自愈）：scrcpy server(新虚拟屏) → TCP 桥 → 悬浮窗，并等待"真正就绪"（视频帧已到达）。
-# 用法: start.sh [宽x高/dpi，默认=物理主屏尺寸与 dpi] [小窗x] [小窗y] [小窗宽dp]
-# 成功输出一行 JSON：{"ok":true,"display":N,"port":P,"w":..,"h":..}；失败输出 {"ok":false,"stage":"...","hint":"...","log":"..."} 并返回非 0。
+# Start the secondary display (idempotent, self-healing): scrcpy server (new virtual display) → TCP bridge → floating window, then wait until truly ready (video frames arrived).
+# Usage: start.sh [WxH/dpi, default = physical main screen size and dpi] [window x] [window y] [window width dp]
+# On success prints one JSON line: {"ok":true,"display":N,"port":P,"w":..,"h":..}; on failure prints {"ok":false,"stage":"...","hint":"...","log":"..."} and exits non-zero.
 . "$(dirname "$0")/common.sh"; ensure_adb || { echo "{\"ok\":false,\"stage\":\"adb\",\"hint\":\"设备未连接或未授权，见 references/setup.md\"}"; exit 3; }
-if [ -z "$1" ]; then   # 默认与物理主屏一致（尺寸+dpi），App 布局与主屏相同
+if [ -z "$1" ]; then   # default matches the physical main screen (size + dpi) so app layouts match
   WMS=$(adbx shell "wm size | tail -1 | sed 's/.*: //'" | tr -d '\r'); WMD=$(adbx shell "wm density | tail -1 | sed 's/.*: //'" | tr -d '\r')
   case "$WMS" in [0-9]*x[0-9]*) SIZE="$WMS/${WMD:-420}";; *) SIZE=540x960/240;; esac
 else SIZE=$1; fi
@@ -14,7 +14,7 @@ fail() { # fail <stage> <hint>
   V=$(version_info 2>/dev/null)
   echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\",\"version\":${V:-null},\"upgrade\":\"出错请先更新到最新版 skill/APK 再试\",\"log\":\"$L\"}"; exit 1; }
 
-# 1. 自动安装/升级：jar 缺失、APK 未装、或 APK 版本与 skill 自带版本不一致 → 重装
+# 1. Auto install/upgrade: reinstall if a jar is missing, the APK is not installed, or its version differs from the bundled one
 WANT=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
 HAVE=$(adbx shell "dumpsys package $PKG 2>/dev/null | grep -m1 versionName | sed 's/.*=//'" | tr -d '\r ')
 if ! adbx shell "[ -f $DEV/server.jar ] && echo ok" | grep -q ok || [ "$HAVE" != "$WANT" ]; then
@@ -22,14 +22,14 @@ if ! adbx shell "[ -f $DEV/server.jar ] && echo ok" | grep -q ok || [ "$HAVE" !=
 fi
 adbx push "$SK_DIR/scripts/device-run.sh" $DEV/run.sh >/dev/null; adbx shell "chmod 755 $DEV/run.sh"
 
-# 2. 选一个空闲端口给桥（默认 27183 被占用时自动顺延），并传给桥与小窗
+# 2. Pick a free port for the bridge (if default 27183 is taken, try the next ones) and pass it to the bridge and window
 PORT=$(adbx shell "p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -qi \":\$(printf %04X \$p) \"); then echo \$p; break; fi; p=\$((p+1)); done" | tr -d '\r')
 [ -z "$PORT" ] && fail port "27183~27282 全被占用"
 
-# 3. 干净重启各进程
+# 3. Cleanly restart all processes
 sh "$SK_DIR/scripts/stop.sh" quiet
 adbx shell "BITRATE=$BR nohup setsid $DEV/run.sh server $SCID $SIZE </dev/null >/dev/null 2>&1 &"
-# 等 server 进入监听（abstract socket 出现）。设备负载高时可能要十几秒；超时则重启 server 再等一轮。
+# Wait for the server to listen (abstract socket appears). May take 10+ seconds under heavy load; on timeout restart the server and wait once more.
 wait_server() { for i in $(seq 1 20); do adbx shell "grep -q scrcpy_$SCID /proc/net/unix && echo up" | grep -q up && return 0; sleep 1; done; return 1; }
 if ! wait_server; then
   sh "$SK_DIR/scripts/stop.sh" quiet
@@ -37,11 +37,11 @@ if ! wait_server; then
   wait_server || fail server "scrcpy server 40 秒内未监听（已重启一次）：看 server.log（常见：jar 丢失/版本不匹配/Android 限制）"
 fi
 adbx shell "PORT=$PORT nohup setsid $DEV/run.sh bridge $SCID $PORT </dev/null >/dev/null 2>&1 &"
-for i in 1 2 3 4 5 6; do adbx shell "grep -q listening $DEV/bridge.log" && break; sleep 1; done
+for i in $(seq 1 15); do adbx shell "grep -q listening $DEV/bridge.log" && break; sleep 1; done
 adbx shell "grep -q 'listening' $DEV/bridge.log" || fail bridge "桥未能监听端口 $PORT：看 bridge.log"
 adbx shell "am start-foreground-service -n $PKG/.PipService --ei port $PORT --ei x $WX --ei y $WY --ei w $WW" >/dev/null
 
-# 4. 等"就绪"：虚拟屏已创建 + 视频帧已到达（最多 20 秒）
+# 4. Wait for "ready": virtual display created + video frames arrived (up to 20 seconds)
 ID=""; READY=""
 for i in $(seq 1 20); do
   [ -z "$ID" ] && ID=$(adbx shell "grep -o 'New display: .*id=[0-9]*' $DEV/server.log" | tail -1 | sed 's/.*id=//' | tr -d '\r)')

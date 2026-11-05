@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Minis 副螢幕</string>
+    <string name="notif_title">Minis 副螢幕執行中</string>
+    <string name="state_idle">AI 待命</string>
+    <string name="state_working">AI 操作中</string>
+    <string name="state_human">你正在操作</string>
+    <string name="state_taken">你已接管</string>
+    <string name="state_stopped">已停止 AI</string>
+    <string name="hold_to_take_over">長按以接管</string>
+    <string name="give_back">交還 AI</string>
+    <string name="confirm_close">再點一次關閉副螢幕</string>
+    <string name="cd_stop">停止 AI</string>
+    <string name="cd_close">關閉副螢幕</string>
+    <string name="cd_expand">展開</string>
+</resources>

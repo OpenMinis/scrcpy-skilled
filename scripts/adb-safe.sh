@@ -1,5 +1,5 @@
 #!/bin/sh
-# adb 包装：带超时，卡死则换新端口重启
+# adb wrapper: with timeout; if adb hangs, restart it on a new port
 P=$(cat /tmp/adbport 2>/dev/null || echo 5300)
 export ANDROID_ADB_SERVER_PORT=$P
 if ! timeout 8 adb devices 2>/dev/null | rg -q 'pixel.*device'; then

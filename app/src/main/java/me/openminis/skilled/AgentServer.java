@@ -14,16 +14,16 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * agent 接口：127.0.0.1:28080 的极简 HTTP 服务（GET，参数在 query）。坐标为虚拟屏像素（如 540x960）。
- *   /status                       JSON：视频尺寸、连接状态、接管状态
- *   /screenshot                   PNG（PixelCopy 自小窗 SurfaceView，缩放到视频尺寸）
+ * Agent API: a minimal HTTP server on 127.0.0.1:28080 (GET, params in query). Coordinates are virtual-display pixels (e.g. 540x960).
+ *   /status                       JSON: video size, connection state, takeover state
+ *   /screenshot                   PNG (PixelCopy from the floating SurfaceView, scaled to video size)
  *   /tap?x=&y=
  *   /swipe?x1=&y1=&x2=&y2=&ms=300
  *   /key?code=4                   Android keycode（4=BACK,3=HOME,66=ENTER...）
- *   /text?s=hello                 输入文字
- *   /start?pkg=com.xxx            在虚拟屏启动 App
- *   /takeover?on=1|0              人类接管开关；接管期间 agent 的操作返回 423
- * 人类触摸小窗会自动进入接管，空闲 HUMAN_IDLE_MS 后自动交还；agent 加 force=1 可强制操作。
+ *   /text?s=hello                 Input text
+ *   /start?pkg=com.xxx            Launch an app on the virtual display
+ *   /takeover?on=1|0              Human takeover switch; agent actions return 423 during takeover
+ * Touching the floating window auto-enters takeover; control returns after HUMAN_IDLE_MS idle. Agent can pass force=1 to override.
  */
 public class AgentServer {
     static final String T = "SKILLED";
@@ -34,7 +34,7 @@ public class AgentServer {
     volatile boolean manualTakeover;
     volatile long lastHumanTouch;
     volatile long lastAgentAction;
-    volatile String title = ""; volatile boolean stopped;
+    volatile String title = ""; volatile boolean stopped; volatile boolean closedByUser;
     ServerSocket ss; volatile boolean running;
 
     AgentServer(PipService s) { svc = s; }
@@ -42,12 +42,12 @@ public class AgentServer {
     boolean humanActive() { return manualTakeover || System.currentTimeMillis() - lastHumanTouch < HUMAN_IDLE_MS; }
     void humanTouched() { lastHumanTouch = System.currentTimeMillis(); }
     void setTakeover(boolean on) { manualTakeover = on; if (!on) { lastHumanTouch = 0; stopped = false; } }
-    /** 用户点「立即停止」：agent 操作一律 423，直到「交还 AI」或 /resume。 */
+    /** User tapped "Stop now": all agent actions return 423 until "Hand back to AI" or /resume. */
     void stopByUser() { stopped = true; manualTakeover = false; title = ""; }
     boolean held() { return manualTakeover || stopped; }
     String versionName() { try { return svc.getPackageManager().getPackageInfo(svc.getPackageName(), 0).versionName; } catch (Throwable e) { return "unknown"; } }
     long versionCode() { try { return svc.getPackageManager().getPackageInfo(svc.getPackageName(), 0).getLongVersionCode(); } catch (Throwable e) { return -1; } }
-    /** 0 AI 待命，1 AI 刚有操作(2.5s 内)，2 人类持有控制权 */
+    /** 0 = AI idle, 1 = AI acted recently (within 2.5s), 2 = human holds control */
     int uiState() {
         if (stopped || humanActive()) return 2;
         return System.currentTimeMillis() - lastAgentAction < 4000 ? 1 : 0;
@@ -91,7 +91,7 @@ public class AgentServer {
             long fr = cl == null ? 0 : cl.frames;
             boolean ready = cl != null && cl.running && fr > 0;
             json(out, 200, "{\"ok\":true,\"connected\":" + (cl != null && cl.running) + ",\"ready\":" + ready + ",\"frames\":" + fr
-                    + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
+                    + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"closed\":" + closedByUser + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
                     + ",\"humanActive\":" + humanActive() + ",\"manualTakeover\":" + manualTakeover
                     + ",\"error\":" + quote(cl == null ? "no client" : cl.lastError) + "}");
             return;
@@ -112,7 +112,7 @@ public class AgentServer {
         if (path.equals("/screenshot")) { lastAgentAction = System.currentTimeMillis(); screenshot(m, out); return; }
         if (path.equals("/window")) { window(m, out); return; }
         if (stopped && !"1".equals(m.get("force"))) {
-            json(out, 423, "{\"ok\":false,\"error\":\"stopped by user\",\"hint\":\"用户点了立即停止；请询问用户后再继续，或让用户点交还 AI\"}"); return;
+            json(out, 423, "{\"ok\":false,\"error\":\"stopped by user\",\"hint\":\"The user pressed Stop. Ask the user before continuing, or ask them to tap Hand back to AI.\"}"); return;
         }
         if (cl == null || !cl.running) { json(out, 503, "{\"ok\":false,\"error\":\"not connected\"}"); return; }
         if (humanActive() && !"1".equals(m.get("force"))) {
@@ -141,7 +141,7 @@ public class AgentServer {
         json(out, 200, "{\"ok\":true}");
     }
 
-    /** /window?x=&y=&w=<dp>  移动/缩放小窗；/window?hide=1 移出屏幕且不可触摸（Surface 保持存活，agent 可继续操作和截图）；hide=0 恢复。 */
+    /** /window?x=&y=&w=<dp>  Move/resize the floating window; /window?hide=1 moves it off-screen and untouchable (Surface stays alive, agent can still act and screenshot); hide=0 restores. */
     void window(Map<String, String> m, OutputStream out) throws Exception {
         final PipService p = svc;
         final CountDownLatch done = new CountDownLatch(1);
