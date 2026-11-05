@@ -7,7 +7,7 @@ if [ -z "$1" ]; then   # 默认与物理主屏一致（尺寸+dpi），App 布�
   WMS=$(adbx shell "wm size | tail -1 | sed 's/.*: //'" | tr -d '\r'); WMD=$(adbx shell "wm density | tail -1 | sed 's/.*: //'" | tr -d '\r')
   case "$WMS" in [0-9]*x[0-9]*) SIZE="$WMS/${WMD:-420}";; *) SIZE=540x960/240;; esac
 else SIZE=$1; fi
- WX=${2:-20}; WY=${3:-300}; WW=${4:-200}; SCID=00001234
+ WX=${2:-20}; WY=${3:-300}; WW=${4:-168}; SCID=00001234
 PIX=$(echo "${SIZE%%/*}" | awk -Fx '{print $1*$2}'); BR=$((PIX>1500000?8000000:4000000))
 fail() { # fail <stage> <hint>
   L=$(adbx shell "echo '--- server'; tail -4 $DEV/server.log; echo '--- bridge'; tail -4 $DEV/bridge.log" 2>/dev/null | tr '\n\r' '  ' | sed 's/"/\\"/g' | cut -c1-600)
@@ -29,9 +29,13 @@ PORT=$(adbx shell "p=27183; while [ \$p -lt 27283 ]; do if ! (cat /proc/net/tcp 
 # 3. 干净重启各进程
 sh "$SK_DIR/scripts/stop.sh" quiet
 adbx shell "BITRATE=$BR nohup setsid $DEV/run.sh server $SCID $SIZE </dev/null >/dev/null 2>&1 &"
-# 等 server 进入监听（abstract socket 出现），而不是盲 sleep
-for i in 1 2 3 4 5 6 7 8 9 10; do adbx shell "grep -q scrcpy_$SCID /proc/net/unix && echo up" | grep -q up && break; sleep 1; done
-adbx shell "grep -q scrcpy_$SCID /proc/net/unix" || fail server "scrcpy server 未监听：看 server.log（常见：jar 丢失/版本不匹配/Android 限制）"
+# 等 server 进入监听（abstract socket 出现）。设备负载高时可能要十几秒；超时则重启 server 再等一轮。
+wait_server() { for i in $(seq 1 20); do adbx shell "grep -q scrcpy_$SCID /proc/net/unix && echo up" | grep -q up && return 0; sleep 1; done; return 1; }
+if ! wait_server; then
+  sh "$SK_DIR/scripts/stop.sh" quiet
+  adbx shell "BITRATE=$BR nohup setsid $DEV/run.sh server $SCID $SIZE </dev/null >/dev/null 2>&1 &"
+  wait_server || fail server "scrcpy server 40 秒内未监听（已重启一次）：看 server.log（常见：jar 丢失/版本不匹配/Android 限制）"
+fi
 adbx shell "PORT=$PORT nohup setsid $DEV/run.sh bridge $SCID $PORT </dev/null >/dev/null 2>&1 &"
 for i in 1 2 3 4 5 6; do adbx shell "grep -q listening $DEV/bridge.log" && break; sleep 1; done
 adbx shell "grep -q 'listening' $DEV/bridge.log" || fail bridge "桥未能监听端口 $PORT：看 bridge.log"

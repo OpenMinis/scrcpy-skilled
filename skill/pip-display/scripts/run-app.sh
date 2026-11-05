@@ -10,7 +10,9 @@ agent "/start?pkg=$1" >/dev/null; echo >/dev/null
 TOP=""
 for i in 1 2 3 4 5 6 7 8; do
   sleep 1
-  TOP=$(adbx shell "dumpsys activity activities" | awk -v id="$ID" '/^Display #/{cur=$2} cur=="#" id && /topResumedActivity/ {print; exit}' | sed 's/.*u0 //;s/ .*//' | tr -d '\r')
+  # 在设备端过滤，只回传一行。不要在本机用 awk 提前 exit：dumpsys 输出很大，
+  # 管道读端关闭后 adb 会一直挂到超时（曾导致 run-app 卡几分钟）。
+  TOP=$(adbx shell "dumpsys activity activities | grep -A12 '^Display #$ID ' | grep -m1 topResumedActivity" | sed 's/.*u0 //;s/ .*//' | tr -d '\r')
   case "$TOP" in $1*) echo "{\"ok\":true,\"display\":$ID,\"top\":\"$TOP\"}"; exit 0;; esac
 done
 echo "{\"ok\":false,\"error\":\"命令已发送，但 $1 没有出现在副屏 $ID 前台\",\"top\":\"$TOP\",\"hint\":\"可能 App 被系统拦截/需要登录/启动慢；用 agent.sh shot 看画面\",\"upgrade\":\"仍失败请先更新到最新版 skill/APK 再试\"}"; exit 1
