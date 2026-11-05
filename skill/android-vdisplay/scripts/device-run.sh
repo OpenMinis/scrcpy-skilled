@@ -16,7 +16,9 @@ up)
   D=/data/local/tmp/sc; PKG=app.openminis.vdisplay; SCID=$2; SIZE=$3; PORT=$4
   now() { date +%s%3N; }; T0=$(now)
   am force-stop $PKG >/dev/null 2>&1
-  for p in $(ps -A -o PID,ARGS | grep -E 'scrcpy\.Server|vdisplay\.Bridge' | grep -v grep | awk '{print $1}'); do kill $p 2>/dev/null; done
+  # Only touch OUR processes: the server started with our scid, and our own Bridge class. A scrcpy server that the user started
+  # for other purposes (different scid, e.g. from scrcpy on a PC) must be left alone.
+  for p in $(ps -A -o PID,ARGS | grep -E "scrcpy\.Server .*scid=$SCID|vdisplay\.Bridge $SCID" | grep -v grep | awk '{print $1}'); do kill $p 2>/dev/null; done
   rm -f $D/server.log $D/bridge.log
   BITRATE=${BITRATE:-4000000} nohup setsid sh $0 server $SCID $SIZE </dev/null >/dev/null 2>&1 &
   # Keep the dependency order (server listening → bridge listening → overlay). Starting all three at once makes the overlay hit the

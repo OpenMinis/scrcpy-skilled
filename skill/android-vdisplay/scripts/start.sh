@@ -10,7 +10,7 @@ if [ -z "$1" ]; then   # default matches the physical main screen (size + dpi) s
   WMS=$(adbx shell "wm size | tail -1 | sed 's/.*: //'" | tr -d '\r'); WMD=$(adbx shell "wm density | tail -1 | sed 's/.*: //'" | tr -d '\r')
   case "$WMS" in [0-9]*x[0-9]*) SIZE="$WMS/${WMD:-420}";; *) SIZE=540x960/240;; esac
 else SIZE=$1; fi
- WX=${2:-20}; WY=${3:-300}; WW=${4:-168}; SCID=00001234
+ WX=${2:-20}; WY=${3:-300}; WW=${4:-168}; SCID=${VDISPLAY_SCID:-76646973}   # 0x76646973 = "vdis": a scid unlikely to collide with a user's own scrcpy (scrcpy picks random ones)
 PIX=$(echo "${SIZE%%/*}" | awk -Fx '{print $1*$2}'); BR=$((PIX>1500000?8000000:4000000))
 fail() { # fail <stage> <hint>
   L=$(adbx shell "echo '--- server'; tail -4 $DEV/server.log; echo '--- bridge'; tail -4 $DEV/bridge.log" 2>/dev/null | tr '\n\r' '  ' | sed 's/"/\\"/g' | cut -c1-600)
@@ -43,5 +43,5 @@ case "$UP" in
        esac ;;
 esac
 lap up
-echo "$ID" > "$STATE/display"; echo "$PORT" > "$STATE/port"
+echo "$ID" > "$STATE/display"; echo "$PORT" > "$STATE/port"; echo "$SCID" > "$STATE/scid"
 echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\",\"ms\":{$TIMING,\"device\":${DEVMS:-0},\"total\":$(( $(now_ms) - T0 ))}}"
