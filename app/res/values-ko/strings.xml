@@ -14,4 +14,6 @@
     <string name="cd_stop">AI 중지</string>
     <string name="cd_close">보조 화면 닫기</string>
     <string name="cd_expand">펼치기</string>
+    <string name="a11y_label">Minis 보조 화면 UI 리더</string>
+    <string name="a11y_desc">Minis 에이전트가 보조 화면의 위젯 트리를 읽어 좌표를 추측하지 않고 조작할 수 있게 합니다. 읽기 전용이며 데이터는 이 기기 내 요청에만 응답하고 저장하거나 전송하지 않습니다.</string>
 </resources>

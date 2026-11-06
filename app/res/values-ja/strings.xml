@@ -14,4 +14,6 @@
     <string name="cd_stop">AI を停止</string>
     <string name="cd_close">サブ画面を閉じる</string>
     <string name="cd_expand">展開</string>
+    <string name="a11y_label">Minis サブ画面 UI リーダー</string>
+    <string name="a11y_desc">Minis エージェントがサブ画面のウィジェットツリーを読み取り、座標を推測せずに操作できるようにします。読み取り専用で、データはこの端末内の要求にのみ応答し、保存・送信されません。</string>
 </resources>

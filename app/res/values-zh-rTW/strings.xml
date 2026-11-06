@@ -14,4 +14,6 @@
     <string name="cd_stop">停止 AI</string>
     <string name="cd_close">關閉副螢幕</string>
     <string name="cd_expand">展開</string>
+    <string name="a11y_label">Minis 副屏介面讀取</string>
+    <string name="a11y_desc">讓 Minis 智慧體讀取副屏的元件樹，無需靠截圖猜座標。唯讀；資料僅回應本機請求，不儲存、不上傳。</string>
 </resources>

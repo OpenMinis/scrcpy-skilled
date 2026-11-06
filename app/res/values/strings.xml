@@ -15,4 +15,6 @@
     <string name="cd_stop">Stop AI</string>
     <string name="cd_close">Close second screen</string>
     <string name="cd_expand">Expand</string>
+    <string name="a11y_label">Minis Second Screen UI reader</string>
+    <string name="a11y_desc">Lets the Minis agent read the widget tree of the second screen so it can act without guessing pixels. Read-only; data is only answered to local requests on this phone and never stored or uploaded.</string>
 </resources>

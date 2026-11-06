@@ -10,7 +10,7 @@
 # Env: REMOTE (ssh target), SERIAL (adb device), SKILL_DIR (local skill path)
 set -e
 REMOTE=${REMOTE:-ethan@mini2.wsen.me}
-SERIAL=${SERIAL:-10.1.10.11:5555}
+SERIAL=${SERIAL:-pixel.wsen.me:5555}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SKILL_DIR=${SKILL_DIR:-/var/minis/skills/android-vdisplay}
 RDIR=/tmp/scrcpy-skilled
