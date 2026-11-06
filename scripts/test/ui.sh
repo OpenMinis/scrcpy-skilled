@@ -46,13 +46,15 @@ echo "[7] main screen not mixed in"
 echo "$O" | rg -q 'pkg=(com.android.systemui|app.openminis.vdisplay|com.openminis.app)' && bad "main-screen window in second screen result" || ok "only second-screen windows"
 A ui display 0 | rg -q 'pkg=com.android.systemui|pkg=com.openminis' && ok "display 0 has its own windows" || bad "display 0 empty"
 
-echo "[8] service disabled -> 503 + hint; re-enabled -> works; other services untouched"
+echo "[8] service off: raw /ui answers 503 + hint; agent.sh ui heals it (see ui-heal.sh); with healing blocked it reports the 503"
 BEFORE=$(SETTING | tr ':' '\n' | rg -v 'app.openminis.vdisplay' | sort)
 sh $R sh 'adb -s $SERIAL shell "settings delete secure enabled_accessibility_services"' >/dev/null  # test phone had no other service; see below for coexistence
 sleep 2
-O=$(A ui); echo "$O" | rg -q '"hint"' && echo "$O" | rg -q 'enabled_accessibility_services' && ok "503 body with hint" || bad "$O"
-A ui >/dev/null; [ $? -ne 0 ] && ok "agent.sh ui exits non-zero" || bad "exit 0 on 503"
 echo "$(A status)" | jget serviceEnabled | rg -q False && ok "status serviceEnabled=false" || bad "status still enabled"
+sh $R sh 'mkdir -p ~/.android-vdisplay; : > ~/.android-vdisplay/ui_blocked' >/dev/null     # healing blocked -> the 503 reaches the caller
+O=$(A ui); echo "$O" | rg -q '"hint"' && echo "$O" | rg -q 'enabled_accessibility_services' && ok "503 body with hint (healing blocked)" || bad "$O"
+A ui >/dev/null; [ $? -ne 0 ] && ok "agent.sh ui exits non-zero when it cannot heal" || bad "exit 0 on 503"
+sh $R sh 'rm -f ~/.android-vdisplay/ui_blocked ~/.android-vdisplay/ui_heal_ts' >/dev/null
 sh $R run start.sh >/dev/null   # reuse path re-enables
 sh $R run run-app.sh com.google.android.calculator >/dev/null; sleep 1; A ui find 7 | rg -q digit_7 && ok "re-enabled by start.sh" || bad "not re-enabled"
 

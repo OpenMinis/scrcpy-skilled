@@ -95,6 +95,23 @@ ensure_ui() {
   _i=0; while [ $_i -lt 30 ]; do agent /status 2>/dev/null | grep -q '"serviceConnected":true' && return 0; _i=$((_i+1)); sleep 0.2; done
   return 0
 }
+# Heal a LOST accessibility service in the middle of a session (user toggled it off, settings reset, force-stop dropped the entry...).
+# Rules, so we never fight the user or loop:
+#  - only inside a session WE started ($STATE/display exists; stop.sh removes it) - outside a session we never touch the setting;
+#  - at most one attempt per 60 s (if it is switched off again right away, someone means it: stop re-enabling);
+#  - if the system refuses the write (some vendor ROMs block `settings put secure`), remember it ($STATE/ui_blocked) and stop trying.
+# Returns 0 when the service is enabled again, 1 otherwise. Prints one explanatory line on stderr.
+ui_heal() {
+  [ -f "$STATE/display" ] || return 1
+  [ -f "$STATE/ui_blocked" ] && return 1
+  _now=$(date +%s); _last=$(cat "$STATE/ui_heal_ts" 2>/dev/null || echo 0)
+  [ $((_now - _last)) -lt 60 ] && return 1
+  echo "$_now" > "$STATE/ui_heal_ts"
+  if ensure_ui >/dev/null 2>&1; then echo "note: the accessibility service was off; re-enabled it (append-only, other services untouched)" >&2; return 0; fi
+  : > "$STATE/ui_blocked"
+  echo "note: could not re-enable the accessibility service (the system refused the settings write); use 'agent.sh shot' instead of 'ui'" >&2
+  return 1
+}
 # Remove only OUR entry (other services untouched).
 disable_ui() {
   _cur=$(adbx shell "settings get secure enabled_accessibility_services" 2>/dev/null | tr -d '\r')

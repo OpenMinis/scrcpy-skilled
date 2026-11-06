@@ -27,7 +27,7 @@ if [ "$FRESH" != 1 ] && [ -f "$STATE/display" ]; then
   if echo "$HL" | grep -q "app=1 server=1" && echo "$HL" | grep -q '"ready":true' && echo "$HL" | grep -q '"closed":false' \
      && echo "$HL" | grep -q "\"width\":${SIZE%%x*}," && echo "$HL" | grep -q "\"height\":$(echo "${SIZE%%/*}" | cut -dx -f2),"; then
     RID=$(echo "$HL" | sed 's/.*id=\([0-9]*\) .*/\1/'); RPORT=$(echo "$HL" | sed 's/.*"port":\([0-9]*\).*/\1/')
-    [ -n "$RID" ] && [ -n "$RPORT" ] && { ensure_ui >/dev/null 2>&1; echo "{\"ok\":true,\"display\":$RID,\"port\":$RPORT,\"size\":\"$SIZE\",\"reused\":true,\"ms\":{\"total\":$(( $(now_ms) - T0 ))}}"; exit 0; }
+    [ -n "$RID" ] && [ -n "$RPORT" ] && { rm -f "$STATE/ui_blocked" "$STATE/ui_heal_ts"; ensure_ui >/dev/null 2>&1; echo "{\"ok\":true,\"display\":$RID,\"port\":$RPORT,\"size\":\"$SIZE\",\"reused\":true,\"ms\":{\"total\":$(( $(now_ms) - T0 ))}}"; exit 0; }
   fi
   SAVED=$(save_logs)   # unhealthy display: keep the evidence before it is rebuilt
 fi
@@ -70,5 +70,6 @@ case "$WR" in OK*) ;; *)
 esac
 lap render
 ensure_ui >/dev/null 2>&1; lap ui   # /ui needs the accessibility service; re-enable after the force-stop in `up`
+rm -f "$STATE/ui_blocked" "$STATE/ui_heal_ts"   # an explicit start re-authorises: let ui_heal try again later in this session
 echo "$ID" > "$STATE/display"; echo "$PORT" > "$STATE/port"; echo "$SCID" > "$STATE/scid"
 echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\",\"reused\":false,\"healed\":${HEALED:-false},\"ms\":{$TIMING,\"device\":${DEVMS:-0},\"total\":$(( $(now_ms) - T0 ))}}"

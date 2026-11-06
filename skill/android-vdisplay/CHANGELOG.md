@@ -2,6 +2,13 @@
 
 > **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 android-vdisplay 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
 
+## 0.12.1
+- `agent.sh ui` / `ui-tap` now heal a LOST accessibility service in the middle of a session: on "service not enabled" they re-enable it (append-only) and retry once, with a one-line note on stderr.
+  Guard rails: only inside a session we started (between start.sh and stop.sh), at most once per 60 s (if it is switched off again right away, someone meant it), remembered as blocked when the system refuses the write (some vendor ROMs), and an explicit start.sh re-authorises.
+- Fixed: a reused `start.sh` did not reset those flags.
+- SKILL.md now tells the agent to inform the user before first use that a read-only accessibility service is added through adb.
+- Tests: scripts/test/ui-heal.sh (13 checks); ui.sh case [8] updated.
+
 ## 0.12.0
 - **Second-screen widget tree: `GET /ui` + `agent.sh ui` / `ui-tap`.** New read-only accessibility service `app.openminis.vdisplay/.UiService` reads the virtual display's windows through `getWindowsOnAllDisplays()` (verified on Pixel 4a, Android 13: Calculator on the second screen = 71 nodes, bounds in that display's space, main-screen windows not mixed in). Compact `lines` format (one node per line with centre point) or `json`; filters `find`, `clickable`, `editable`, `scrollable`, `limit`; coordinates in the 540-wide reference space so they go straight to `tap`.
 - `/status` adds `displayId`, `serviceEnabled`, `serviceConnected`. Service not enabled -> HTTP 503 with a `hint`.

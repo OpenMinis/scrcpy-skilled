@@ -7,5 +7,5 @@ adbx shell "am stopservice $PKG/.PipService >/dev/null 2>&1; am force-stop $PKG"
 SCID=$(cat "$STATE/scid" 2>/dev/null || echo "${VDISPLAY_SCID:-76646973}")
 PIDS=$(adbx shell "ps -A -o PID,ARGS" | grep -E "scrcpy\.Server .*scid=$SCID|vdisplay\.Bridge $SCID" | grep -v grep | awk '{print $1}')
 for p in $PIDS; do adbx shell "kill $p" >/dev/null 2>&1; done
-rm -f "$STATE/display" "$STATE/port" "$STATE/scid"
+rm -f "$STATE/display" "$STATE/port" "$STATE/scid" "$STATE/ui_blocked" "$STATE/ui_heal_ts"
 [ "$1" = quiet ] || echo stopped

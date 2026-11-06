@@ -7,6 +7,14 @@
 # (`version` is the one command that needs adb, for the installed-APK check.)
 [ "$1" = version ] && { ensure_adb || exit $?; }
 REF=${REF_W:-540}
+# GET /ui with one automatic recovery: if the accessibility service is off (503 "not enabled") re-enable it and retry once.
+ui_get() {
+  _r=$(agent "$1")
+  case "$_r" in *'"serviceEnabled":false'*|*'"serviceConnected":false'*)
+    ui_heal && _r=$(agent "$1") ;;
+  esac
+  printf '%s' "$_r"
+}
 c=$1; shift
 case "$c" in
   tap) agent "/tap?x=$1&y=$2&ref=$REF" ;;
@@ -40,13 +48,13 @@ case "$c" in
         all-displays) q="$q&display=all" ;;
         *) echo "ERR: unknown ui option $1 (find <text> | clickable | editable | scrollable | json | limit N | display N)"; exit 2 ;;
       esac; shift; done
-      R=$(agent "/ui?$q"); echo "$R"
+      R=$(ui_get "/ui?$q"); echo "$R"
       case "$R" in '{"ok":false'*) exit 1 ;; "") exit 1 ;; esac
       exit 0 ;;
   ui-tap) # ui-tap <text>: tap the centre of the single best match (exact text/desc/id first, then substring); several candidates -> list them, tap nothing
       [ -z "$1" ] && { echo "ERR: usage: ui-tap <text>"; exit 2; }
       Q=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$1")
-      R=$(agent "/ui?ref=$REF&format=json&find=$Q&limit=50")
+      R=$(ui_get "/ui?ref=$REF&format=json&find=$Q&limit=50")
       case "$R" in '{"ok":true'*) ;; *) echo "$R"; exit 1 ;; esac
       OUT=$(printf '%s' "$R" | python3 -c '
 import sys,json
