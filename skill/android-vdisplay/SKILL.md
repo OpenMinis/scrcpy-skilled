@@ -1,7 +1,7 @@
 ---
 name: android-vdisplay
 description: 在 Android 设备的 Minis 里，通过本机 adb 创建「副屏（虚拟显示器）」并以悬浮小窗显示在主屏，让 agent 在副屏里启动 App、截图、点击、滑动、输入、按键，人类可随时触摸小窗接管（自动互斥）。基于 scrcpy server（trusted 虚拟屏）+ 配套 APK。当用户提到「副屏」「虚拟屏」「画中画」「悬浮窗操作手机」「后台操作 App」「不影响主屏的自动化」「scrcpy 虚拟显示器」「agent 操作手机 App 并可接管」，或需要在 Android 本机上让 agent 操作 App 而不占用当前屏幕时使用。
-version: 0.11.0
+version: 0.12.0
 ---
 
 # android-vdisplay：本机副屏 + 悬浮小窗 + agent 操作
@@ -16,8 +16,10 @@ version: 0.11.0
 SK=/var/minis/skills/android-vdisplay/scripts
 sh $SK/start.sh                        # 自动安装→选空闲端口→起 server/桥/小窗→等视频帧到达
 sh $SK/run-app.sh com.android.chrome   # 启动并确认 App 真的在副屏前台
-sh $SK/agent.sh shot /tmp/s.jpg jpg 70 # 截图看图（JPEG 比 PNG 快 2 倍、省 3/4 体积与 token）
-sh $SK/agent.sh tap 270 480            # 视觉识别后点击（参考坐标系 540x960）
+sh $SK/agent.sh ui                     # 先读控件树：一行一个控件，带中心点 c=(x,y)（540 坐标系）
+sh $SK/agent.sh ui find 7              # 按文字/描述/id 找；或 ui-tap 7 一步找到并点击
+sh $SK/agent.sh tap 270 480            # 用 ui 给的 c=(x,y) 点击；操作后再 ui find 验证结果
+sh $SK/agent.sh shot /tmp/s.jpg jpg 70 # ui 为空/不够时（游戏、WebView、Flutter、自绘 UI）才截图看图
 sh $SK/stop.sh                         # 结束并退出
 ```
 所有命令输出 JSON 或明确的 `ERR:`，退出码非 0 即失败。直接按 JSON 中的 `hint` 处理，不要手动拼 adb 命令。
@@ -41,6 +43,7 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
 |---|---|
 | `status` | `ready:true` = 解码器**已渲染出画面**（`rendered>0`）；`frames` 只是收到的包数；另有 `dropped`、`decodeErrors`、`port`、`humanActive`、`error` |
 | `shot [path] [png\|jpg\|webp] [q]` | 截图（默认 540 宽）；看图推荐 `jpg 70` 省 token |
+| `ui [find 文字] [clickable] [editable] [json]` / `ui-tap 文字` | 副屏控件树（一行一节点，含中心点）；`ui-tap` 唯一匹配才点 |
 | `tap x y` / `swipe x1 y1 x2 y2 [ms]` | 像素坐标，与 `shot` 尺寸完全一致（默认 540 宽等比） |
 | `key <code>` | 4=BACK 3=HOME 66=ENTER 67=DEL |
 | `text "内容"` | 英文逐字输入；中文等非 ASCII 自动走剪贴板粘贴 |
@@ -51,11 +54,8 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
 `run-app.sh <包名>`：只有 `ok:true` 才代表 App 已在副屏前台；若失败会直接报原因（未安装 / 未到前台）。
 
 ## ⚠️ 核心工作流与铁律
-1. **工作流**：`start` → `run-app` → 循环「`shot` 看图 → 一个动作 → `shot` 验证」→ `stop`。每个动作后必须截图确认。
-2. **严禁尝试读取副屏控件树**：
-   - `android-a11y-cli ui dump` 与 `uiautomator dump` **均读不到副屏**，底层只会返回主屏的 45 个节点（SystemUI / Minis / 悬浮窗）。
-   - **绝对不要**尝试 `--display`、`--package`、`find --text` 搜副屏，详见 [references/accessibility.md](references/accessibility.md)。
-   - **唯一正解**：`agent.sh shot ... jpg 70` 截图，由视觉模型定位坐标后 `tap`。
+1. **工作流**：`start` → `run-app` → 循环「`ui` 找控件 → 一个动作 → `ui find` 验证（必要时 `shot`）」→ `stop`。
+2. **控件树优先**：`agent.sh ui` 读副屏控件树（0.12.0+，详见 [references/accessibility.md](references/accessibility.md)）；节点为空或缺目标时才 `shot`。**不要**用 `android-a11y-cli ui dump/find` 或 `uiautomator dump` 读副屏：它们忽略 `--display`，只返回主屏 45 个节点。`ui` 返回 503（服务未启用）时按 hint 或重跑 `start.sh`，否则用截图。
 3. **人类接管与 423**：
    - 用户在小窗定点长按 1 秒或点右上角停止按钮进入接管，此时 agent 控制接口返回 **HTTP 423**（`human has control` / `stopped by user`）。
    - 收到 423 时**绝不可重试轰炸**，暂停并告知用户，等用户点「交还 AI」后再继续。详见 [references/takeover.md](references/takeover.md)。
@@ -66,12 +66,12 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
 ## 渐进式参考文档
 - [references/setup.md](references/setup.md)：本机无线调试配对与连通性指引
 - [references/takeover.md](references/takeover.md)：手势（长按接管、双指缩放、折叠拉手）与 423 详细规则
-- [references/accessibility.md](references/accessibility.md)：为什么副屏无法读控件树的技术原理与实测证据
+- [references/accessibility.md](references/accessibility.md)：副屏控件树（`ui`）的原理、启用方式与实测
 - [references/agent-api.md](references/agent-api.md)：APK 内置 HTTP 接口（127.0.0.1:28080）完整协议与返回结构
 - [references/architecture.md](references/architecture.md)：scrcpy-server + Bridge + APK 跨进程架构
 
 ## 已知限制
-已验证：Pixel 4a (Android 13)、Pixel 6 (Android 17)；副屏控件树不可读（必须视觉定位）；锁屏时不可用；视频走 H.264 本机 loopback；中文输入会覆盖手机系统剪贴板。
+已验证：Pixel 4a (Android 13)、Pixel 6 (Android 17)；副屏控件树经 `ui` 可读（仅 4a 测过静默启用；自绘 UI 无节点需截图）；锁屏时不可用；视频走 H.264 本机 loopback；中文输入会覆盖手机系统剪贴板。
 
 ## 目录
 `scripts/`（start / stop / run-app / agent / install / common / device-run）、`assets/`（vdisplay.apk、scrcpy-server.jar 5.0.1、vdisplay-shell.jar）、`references/`。源码：https://github.com/OpenMinis/scrcpy-skilled

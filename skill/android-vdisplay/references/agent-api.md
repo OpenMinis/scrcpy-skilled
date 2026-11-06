@@ -34,3 +34,17 @@ APK 启动后在设备本机监听。电脑上用 `adb forward tcp:<本机端口
 - `ready = connected && rendered > 0`，即“已经画出过画面”。`start.sh` 以此为成功标准。
 - `dropped`：因解码器输入缓冲超时而丢弃的包数（config/关键帧会重试约 500 ms，仍失败则向 server 发 RESET_VIDEO 要新关键帧）。`decodeErrors`：解码异常次数（原因在 `error` 与 logcat 的 `SKILLED` 标签）。
 - Surface 销毁时 `rendered` 归零，新 Surface 绑定并出新画面后恢复。
+
+## `GET /ui`（0.12.0，只读控件树，需无障碍服务）
+`/status` 新增 `displayId`（本副屏 id）、`serviceEnabled`、`serviceConnected`。`/ui` 只读：人类接管/Stop 期间也可用，并刷新闲置计时。
+| 参数 | 说明 |
+|---|---|
+| `display=<id>\|all` | 默认本副屏；`all` 列出各屏窗口 |
+| `ref=540` | 坐标参考宽度（同 /tap），高度按比例；每个节点带 `center` |
+| `find=<text>` | 不分大小写子串，匹配 text / contentDescription / resource id；无匹配返回 `count=0` |
+| `clickable=1` `editable=1` `scrollable=1` | 过滤 |
+| `limit=N` | 默认 200 |
+| `format=lines\|json` | 默认 lines：`[25] ImageButton desc="7" id=digit_7 click (6,605)-(134,733) c=(70,669)`；json 为 `items:[{i,d,p,class,text,desc,id,bounds,center,clickable,...}]` |
+| `all=1` | 不过滤不可见/无信息节点 |
+默认输出跳过不可见、零尺寸、无 text/desc 且不可点击/编辑/滚动的节点。服务未启用/未连接返回 HTTP 503：`{"ok":false,"error":..,"serviceEnabled":..,"serviceConnected":..,"hint":"<启用命令>"}`；系统调用超过 5 s 返回 504。
+实测字节数（540 参考坐标）：计算器 lines 3.5 KB / json 6.3 KB；设置 4.0 / 7.0 KB；Chrome 5.6 / 9.5 KB。延迟中位数 16 ms。

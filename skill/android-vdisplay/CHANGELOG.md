@@ -2,6 +2,13 @@
 
 > **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 android-vdisplay 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
 
+## 0.12.0
+- **Second-screen widget tree: `GET /ui` + `agent.sh ui` / `ui-tap`.** New read-only accessibility service `app.openminis.vdisplay/.UiService` reads the virtual display's windows through `getWindowsOnAllDisplays()` (verified on Pixel 4a, Android 13: Calculator on the second screen = 71 nodes, bounds in that display's space, main-screen windows not mixed in). Compact `lines` format (one node per line with centre point) or `json`; filters `find`, `clickable`, `editable`, `scrollable`, `limit`; coordinates in the 540-wide reference space so they go straight to `tap`.
+- `/status` adds `displayId`, `serviceEnabled`, `serviceConnected`. Service not enabled -> HTTP 503 with a `hint`.
+- `start.sh`/`install.sh` enable the service silently via `settings put secure enabled_accessibility_services` (APPEND only, idempotent, other services untouched; needs WRITE_SECURE_SETTINGS held by adb shell). `am force-stop` removes only our entry, so `start.sh` re-enables it each time.
+- Nodes are `refresh()`ed before reading (otherwise EditText text can be stale). Idle service costs no CPU.
+- Tests: scripts/test/ui.sh. SKILL.md shortest path now prefers `ui`, falling back to `shot` for games/WebView/Flutter/custom-drawn UI.
+
 ## 0.11.0
 - **`ready` now means a picture was rendered.** The app counts frames the decoder actually produced (`rendered`); `/status` has `ready = connected && rendered>0`. `frames` keeps its old meaning (packets received) and `dropped`/`decodeErrors` were added. Fixes "ready:true but every screenshot is black".
 - **Decoder no longer drops config/keyframes**: input-buffer timeouts are retried (up to ~500 ms) for config and key packets; if one still cannot be queued the app asks the server for a new keyframe (scrcpy RESET_VIDEO). Decoder exceptions are logged with their text. Output is drained on its own thread.

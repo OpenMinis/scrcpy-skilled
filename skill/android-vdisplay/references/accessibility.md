@@ -1,42 +1,26 @@
-# 为什么当前副屏无法读取控件树（无障碍 / uiautomator）
+# 副屏控件树（0.12.0 起可读：`agent.sh ui`）
 
-## 实测结论
-**截至当前版本，无法通过无障碍接口或系统命令行读取副屏内的控件树。agent 必须使用视觉截图 + 像素坐标。**
+## 现状（Pixel 4a, Android 13 实测）
+APK 内置只读无障碍服务 `app.openminis.vdisplay/.UiService`，用 `getWindowsOnAllDisplays()`（API 30+，按 displayId 分组）读取**副屏**窗口树。`GET /ui`（脚本 `agent.sh ui`）只回答 127.0.0.1 的本机请求，不存盘、不上传。
+- 计算器在副屏：71 个节点，坐标是副屏坐标系（1080x2340），接口按 `ref=540` 缩放后可直接给 `agent.sh tap`；每个节点附 `c=(x,y)` 中心点。
+- 主屏窗口（SystemUI、Minis、悬浮窗）在 display 0，**不会混进**副屏结果；`ui display 0` 才看主屏，`ui all-displays` 列各屏窗口。
+- 节点可读：text、contentDescription、resource id（短名）、bounds、clickable/editable/scrollable/enabled/checked/selected/focusable。已验证用 `/ui` 读出 37×42 的结果 1554，无需截图。
+- 注意：有些节点（如计算器的显示框）文字在刷新前会是旧值，服务对每个节点先 `refresh()` 再读，所以读到的是当前值。
 
-在 Pixel 6（Android 17, API 37）上做过三路完整对比实测：
+## 怎么启用（无需用户点设置）
+`start.sh` / `install.sh` 自动执行 `settings put secure enabled_accessibility_services <原值>:app.openminis.vdisplay/app.openminis.vdisplay.UiService` + `accessibility_enabled 1`（adb shell 有 WRITE_SECURE_SETTINGS）。**只追加**、幂等、不碰其他服务；`stop.sh`/`start.sh` 里的 `am force-stop` 只会让系统摘掉本服务条目（其他服务保留），所以每次 `start.sh` 都会重新启用并等待 `serviceConnected:true`。仅在 Pixel 4a（Android 13）测过；其他厂商若限制 secure settings，`/status` 的 `serviceEnabled` 会是 false，`/ui` 返回 503 + `hint`，这时退回截图。
+闲置时服务零 CPU（实测 15 s 内 0 tick，约 50 MB 常驻，12 线程）；关闭副屏后服务进程可能留着，无害。
 
-### 1. `android-a11y-cli ui dump`（Minis 内置无障碍工具）
-- **即使指定参数**：
-  ```sh
-  android-a11y-cli ui dump --display <副屏ID>
-  android-a11y-cli ui dump --package com.google.android.calculator
-  ```
-- **实际返回**：无论加不加 `--display`，底层均未遍历其他 display 的窗口树，永远返回**主屏的 45 个节点**（包含 `com.android.systemui` 状态栏、`com.openminis.app`、主屏上的悬浮窗 `app.openminis.vdisplay`）。副屏上的计算器节点一个也拿不到。
-- **搜文字**：`android-a11y-cli ui find --text "7"` 实测返回 `count: 0`。
-- **虽然 `ui info` 能识别到包名**（返回 `packageName: "com.google.android.calculator"`），但其 `windows` 列表里只有主屏的窗口 ID，拿不到节点树。
+## 用法（推荐）
+```sh
+sh $SK/agent.sh ui                       # 一行一个节点：[25] ImageButton desc="7" id=digit_7 click (6,605)-(134,733) c=(70,669)
+sh $SK/agent.sh ui find 7                # 文字/描述/id 子串匹配（不分大小写）；没有匹配 count=0，不是错误
+sh $SK/agent.sh ui clickable | editable | scrollable | json | limit N | display N | all-displays
+sh $SK/agent.sh ui-tap 7                 # 精确匹配优先；唯一目标才点；多个不同目标只列出不点
+```
+`ui` 为空或不够用时（游戏、WebView、Flutter、自绘 UI 常常没有节点）用 `shot` + 像素坐标。操作后用 `ui find <结果框>` 验证即可，不必每步截图。
 
-### 2. `uiautomator dump --display <ID>`（系统底层工具）
-- 命令支持 `--display <ID>` 参数，但实测在 Android 17 上被系统底层忽略。
-- 当副屏是计算器、主屏是设置/时钟时：
-  ```sh
-  uiautomator dump --display 81 /sdcard/ui.xml
-  ```
-  抓出来的 XML 永远是主屏当前获焦的 App（设置/时钟），节点数为 76，副屏应用完全未被采集。
-
-### 3. 系统无障碍框架底层其实「看得到」副屏
-- 在 adb 中执行 `dumpsys accessibility`：
-  - `Display[0]` 对应主屏窗口
-  - `Display[81]` 能看到 `Calculator` 的窗口句柄、任务栏与状态栏
-- 说明 Android 框架层支持多屏无障碍（`AccessibilityService.getWindowsOnAllDisplays()` 公开 API），只是 **Minis 宿主目前的 `MinisAccessibilityService` 尚未遍历非 0 display 的根节点**。
-
-## 对 Agent 的行动指导
-- **绝对不要尝试**以下无用轮数：
-  - 换用各种 dump 参数（`-d`、`--window`、`--container`）
-  - 尝试从 `/sdcard/window_dump.xml` 抓取副屏内容
-  - 反复调用 `find --text` 搜副屏文字
-- **唯一的正解路径**：
-  ```sh
-  sh $SK/agent.sh shot /tmp/s.jpg jpg 70
-  ```
-  读取图片并由视觉模型识别点击目标，换算为坐标后调用 `sh $SK/agent.sh tap x y`。
-- 后续如果 Minis 宿主或副屏 APK 接入了 `getWindowsOnAllDisplays`，本 skill 会同步更新 `/ui` 接口并在此文档标注。
+## 历史实测（别再浪费调用）
+- Minis 的 `android-a11y-cli ui dump --display <ID>` / `--package` / `ui find --text` 都忽略 display，永远返回主屏 45 个节点；`ui info` 的 windows 也只有主屏。（Minis 1.16-beta.3 测试时如此。）
+- `uiautomator dump --display <ID>` 同样被忽略，返回主屏。
+- 不要再试这两个；用 `agent.sh ui`。若 `/ui` 返回 503，按 hint 启用，或用截图。
