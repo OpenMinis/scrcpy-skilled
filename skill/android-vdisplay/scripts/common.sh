@@ -79,3 +79,27 @@ save_logs() {
   for _o in $(ls -1d "$STATE"/logs/*/ 2>/dev/null | sort -r | tail -n +6); do rm -rf "$_o"; done
   echo "$_d"
 }
+
+# Enable our read-only accessibility service (needed by /ui). APPENDS to enabled_accessibility_services (never overwrites other services)
+# and is idempotent. Needs WRITE_SECURE_SETTINGS, which the adb shell user has on tested phones. `am force-stop $PKG` (used by start/stop)
+# makes Android drop OUR entry only, so this must run after every start. Prints nothing; returns 0 when the service is in the list.
+UI_SVC=$PKG/$PKG.UiService
+ensure_ui() {
+  _cur=$(adbx shell "settings get secure enabled_accessibility_services" 2>/dev/null | tr -d '\r')
+  case ":$_cur:" in *":$UI_SVC:"*) ;; *)
+    case "$_cur" in null|"") _new=$UI_SVC;; *) _new="$_cur:$UI_SVC";; esac
+    adbx shell "settings put secure enabled_accessibility_services '$_new'; settings put secure accessibility_enabled 1" >/dev/null 2>&1 ;;
+  esac
+  adbx shell "settings get secure enabled_accessibility_services" 2>/dev/null | grep -q "$UI_SVC" || return 1
+  # binding takes up to ~3 s after the setting changes: wait until the app reports serviceConnected (max 6 s) so the first /ui works
+  _i=0; while [ $_i -lt 30 ]; do agent /status 2>/dev/null | grep -q '"serviceConnected":true' && return 0; _i=$((_i+1)); sleep 0.2; done
+  return 0
+}
+# Remove only OUR entry (other services untouched).
+disable_ui() {
+  _cur=$(adbx shell "settings get secure enabled_accessibility_services" 2>/dev/null | tr -d '\r')
+  _new=$(printf %s "$_cur" | tr ':' '\n' | grep -vx "$UI_SVC" | grep -v '^null$' | paste -sd: -)
+  [ "$_new" = "$_cur" ] && return 0
+  if [ -z "$_new" ]; then adbx shell "settings delete secure enabled_accessibility_services" >/dev/null 2>&1
+  else adbx shell "settings put secure enabled_accessibility_services '$_new'" >/dev/null 2>&1; fi
+}

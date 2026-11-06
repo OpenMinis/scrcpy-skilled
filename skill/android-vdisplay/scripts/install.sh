@@ -9,4 +9,5 @@ R=$(T=120 adbx install -r "$SK_DIR/assets/skilled.apk" 2>&1 | tail -1)
 case "$R" in *Success*) ;; *) err apk "APK 安装失败: $R（签名冲突时需用户确认后卸载旧版 $PKG）";; esac
 adbx shell "appops set $PKG SYSTEM_ALERT_WINDOW allow; pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null; cmd deviceidle whitelist +$PKG >/dev/null 2>&1"
 adbx shell "appops get $PKG SYSTEM_ALERT_WINDOW" | grep -qi allow || err permission "悬浮窗权限未授予，请用户在 设置→应用→特殊权限→显示在其他应用上层 手动开启"
+ensure_ui >/dev/null 2>&1   # best effort: enable the read-only /ui accessibility service (appends, idempotent)
 echo '{"ok":true}'
