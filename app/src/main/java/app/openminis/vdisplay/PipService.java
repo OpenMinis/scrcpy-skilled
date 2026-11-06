@@ -467,12 +467,13 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
     // ======================= Surface / scrcpy =======================
     @Override public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int h) {
         surf = new Surface(st);
-        client = new ScrcpyClient("127.0.0.1", port, surf, this);
-        client.start();
+        // a re-created TextureView gives a new SurfaceTexture: keep the running client (and its session state) and re-point its decoder at the new Surface
+        if (client != null && client.running) client.setSurface(surf);
+        else { client = new ScrcpyClient("127.0.0.1", port, surf, this); client.start(); }
     }
     @Override public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int h) {}
     @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
-        if (client != null) client.stop(); client = null;
+        if (client != null) client.detachSurface();   // stop decoding into the dying Surface but keep the connection
         if (surf != null) { surf.release(); surf = null; }
         return true;
     }

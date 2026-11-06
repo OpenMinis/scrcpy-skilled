@@ -93,8 +93,10 @@ public class AgentServer {
         ScrcpyClient cl = svc.client;
         if (path.equals("/status")) {
             long fr = cl == null ? 0 : cl.frames;
-            boolean ready = cl != null && cl.running && fr > 0;
+            long rd = cl == null ? 0 : cl.rendered;
+            boolean ready = cl != null && cl.running && rd > 0;   // ready = a decoded picture was actually rendered (not merely packets received)
             json(out, 200, "{\"ok\":true,\"connected\":" + (cl != null && cl.running) + ",\"ready\":" + ready + ",\"frames\":" + fr
+                    + ",\"rendered\":" + rd + ",\"dropped\":" + (cl == null ? 0 : cl.dropped) + ",\"decodeErrors\":" + (cl == null ? 0 : cl.decodeErrors)
                     + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"closed\":" + closedByUser + ",\"closedReason\":" + quote(closedReason) + ",\"idleMs\":" + (System.currentTimeMillis() - lastActivity) + ",\"idleLimitMs\":" + svc.idleLimitMs + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
                     + ",\"humanActive\":" + humanActive() + ",\"manualTakeover\":" + manualTakeover
                     + ",\"error\":" + quote(cl == null ? "no client" : cl.lastError) + "}");

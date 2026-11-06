@@ -20,10 +20,11 @@ public class ScrcpyClient {
     static final String T = "SKILLED";
     public interface Listener { void onVideoSize(int w, int h); void onClosed(String why); }
 
-    final String host; final int port; final Surface surface; final Listener l;
+    final String host; final int port; volatile Surface surface; final Listener l;
     Socket video, control; DataOutputStream ctl; MediaCodec codec;
     volatile boolean running; volatile int vw, vh;
-    volatile long frames; volatile long firstFrameAt; volatile String lastError = "";
+    volatile long frames, rendered, dropped, decodeErrors, firstRenderAt; volatile boolean needKey = true, dropLogged; volatile byte[] lastConfig; volatile int pendingW, pendingH;
+    volatile int skippedDelta; volatile long firstFrameAt; volatile String lastError = "";
     final ExecutorService tx = Executors.newSingleThreadExecutor(); // all control messages are written to the socket on the sender thread
 
     public ScrcpyClient(String host, int port, Surface s, Listener l) { this.host = host; this.port = port; this.surface = s; this.l = l; }
@@ -37,8 +38,7 @@ public class ScrcpyClient {
         running = false; tx.shutdownNow();
         try { if (video != null) video.close(); } catch (Throwable e) {}
         try { if (control != null) control.close(); } catch (Throwable e) {}
-        try { if (codec != null) codec.stop(); } catch (Throwable e) {}
-        try { if (codec != null) codec.release(); } catch (Throwable e) {}
+        stopCodec();
     }
 
     void run() {
@@ -65,13 +65,14 @@ public class ScrcpyClient {
                     int w = ByteBuffer.wrap(hdr, 4, 4).getInt(), hh = ByteBuffer.wrap(hdr, 8, 4).getInt();
                     Log.i(T, "session " + w + "x" + hh);
                     vw = w; vh = hh;
-                    restartCodec(w, hh);
+                    restartCodec(w, hh, false);
                     if (l != null) l.onVideoSize(w, hh);
                     continue;
                 }
                 byte[] data = new byte[size]; in.readFully(data);
                 boolean config = (pf & (1L << 62)) != 0, key = (pf & (1L << 61)) != 0;
                 long pts = pf & ((1L << 61) - 1);
+                if (config) lastConfig = data;
                 if (!config) { frames++; if (firstFrameAt == 0) firstFrameAt = System.currentTimeMillis(); }
                 feed(data, pts, config, key);
             }
@@ -84,26 +85,88 @@ public class ScrcpyClient {
 
     void drainControl() { try { InputStream i = control.getInputStream(); byte[] b = new byte[4096]; while (i.read(b) >= 0) {} } catch (Throwable e) {} }
 
-    void restartCodec(int w, int h) throws IOException {
-        if (codec != null) { try { codec.stop(); codec.release(); } catch (Throwable e) {} }
-        codec = MediaCodec.createDecoderByType("video/avc");
+    /** Decoder (re)start. Never runs without a valid Surface: the size is remembered and the codec is started by setSurface(). */
+    synchronized void restartCodec(int w, int h, boolean replay) throws IOException {
+        pendingW = w; pendingH = h;
+        Surface s = surface;
+        if (s == null || !s.isValid()) { Log.w(T, "session " + w + "x" + h + " before a valid Surface: decoder start deferred"); stopCodec(); return; }
+        stopCodec();
+        MediaCodec c = MediaCodec.createDecoderByType("video/avc");
         MediaFormat f = MediaFormat.createVideoFormat("video/avc", w, h);
-        codec.configure(f, surface, null, 0);
-        codec.start();
+        c.configure(f, s, null, 0);
+        c.start();
+        codec = c; needKey = true;
+        Thread d = new Thread(() -> drain(c), "scrcpy-drain"); d.setDaemon(true); d.start();
+        // A normal session packet is followed by config + keyframe from the server. When the decoder was deferred (no Surface yet),
+        // that data was already consumed: replay the stored config and ask the server for a fresh keyframe (RESET_VIDEO).
+        if (replay) { byte[] cfg = lastConfig; if (cfg != null) feed(cfg, 0, true, false); requestKeyframe(); }
     }
 
-    void feed(byte[] data, long pts, boolean config, boolean key) {
-        if (codec == null) return;
-        try {
-            int idx = codec.dequeueInputBuffer(20000);
-            if (idx >= 0) {
-                ByteBuffer b = codec.getInputBuffer(idx); b.clear(); b.put(data);
-                codec.queueInputBuffer(idx, 0, data.length, pts, config ? MediaCodec.BUFFER_FLAG_CODEC_CONFIG : 0);
+    synchronized void stopCodec() {
+        MediaCodec c = codec; codec = null;
+        if (c != null) { try { c.stop(); } catch (Throwable e) {} try { c.release(); } catch (Throwable e) {} }
+    }
+
+    /** The Surface was (re)created after the client started (or a session arrived before it existed): start decoding on it. */
+    public synchronized void setSurface(Surface s) {
+        surface = s;
+        if (s != null && s.isValid() && codec == null && pendingW > 0 && running) {
+            try { restartCodec(pendingW, pendingH, true); } catch (Throwable e) { lastError = "setSurface: " + e; Log.e(T, "setSurface restart failed: " + e); }
+        }
+    }
+
+    /** The Surface is going away: drop the decoder (it would render into a dead Surface); setSurface() restarts it. */
+    public synchronized void detachSurface() { surface = null; stopCodec(); rendered = 0; }
+
+    /** Output side: runs on its own thread so a static picture (decoder holding back its last frame) still gets rendered and counted. */
+    void drain(MediaCodec c) {
+        MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+        while (running && codec == c) {
+            try {
+                int o = c.dequeueOutputBuffer(bi, 20000);
+                if (o >= 0) {
+                    boolean draw = bi.size > 0;
+                    c.releaseOutputBuffer(o, draw);
+                    if (draw) { rendered++; if (firstRenderAt == 0) firstRenderAt = System.currentTimeMillis(); }
+                }
+            } catch (Throwable e) {
+                if (codec == c && running) { decodeErrors++; lastError = "drain: " + e; Log.e(T, "decoder drain error: " + e); }
+                return;
             }
-            MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
-            int o;
-            while ((o = codec.dequeueOutputBuffer(bi, 0)) >= 0) codec.releaseOutputBuffer(o, true);
-        } catch (Throwable e) { Log.e(T, "decode err " + e); }
+        }
+    }
+
+    /** Queue one packet. Config/key packets are never dropped silently: retry up to ~500 ms, then ask the server for a new keyframe. */
+    void feed(byte[] data, long pts, boolean config, boolean key) {
+        MediaCodec c = codec;
+        if (c == null) return;
+        if (!config && needKey && !key) { if (++skippedDelta % 30 == 0) requestKeyframe(); return; }   // deltas before the first keyframe only produce garbage
+        try {
+            boolean must = config || key;
+            long deadline = System.currentTimeMillis() + (must ? 500 : 0);
+            int idx;
+            do { idx = c.dequeueInputBuffer(20000); } while (idx < 0 && System.currentTimeMillis() < deadline && running && codec == c);
+            if (idx >= 0) {
+                ByteBuffer b = c.getInputBuffer(idx); b.clear(); b.put(data);
+                c.queueInputBuffer(idx, 0, data.length, pts, config ? MediaCodec.BUFFER_FLAG_CODEC_CONFIG : 0);
+                if (key) { needKey = false; skippedDelta = 0; }
+            } else {
+                dropped++;
+                if (!dropLogged || must) { dropLogged = true; Log.w(T, "decoder input stalled: dropped " + (config ? "config" : key ? "key" : "delta") + " packet (total dropped=" + dropped + ")"); }
+                if (must) requestKeyframe();
+            }
+        } catch (Throwable e) {
+            decodeErrors++; lastError = "decode: " + e;
+            Log.e(T, "decode error (config=" + config + " key=" + key + " size=" + data.length + "): " + e);
+            if (config || key) requestKeyframe();
+        }
+    }
+
+    /** scrcpy RESET_VIDEO (type 17): the server restarts its encoder so the next packets are config + a keyframe. */
+    public void requestKeyframe() { try { tx.execute(this::reset0); } catch (Throwable e) {} }
+    synchronized void reset0() {
+        try { if (ctl == null) return; ctl.writeByte(17); ctl.flush(); Log.i(T, "requested keyframe (RESET_VIDEO)"); }
+        catch (Throwable e) { Log.e(T, "reset video send " + e); }
     }
 
     // ---- control messages (big-endian) ----
