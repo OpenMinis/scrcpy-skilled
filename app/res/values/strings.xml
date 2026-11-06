@@ -11,6 +11,7 @@
     <string name="hold_to_take_over">Press and hold to take over</string>
     <string name="give_back">Hand back to AI</string>
     <string name="confirm_close">Tap again to close</string>
+    <string name="idle_closing">Closing for inactivity in %1$ds</string>
     <string name="cd_stop">Stop AI</string>
     <string name="cd_close">Close second screen</string>
     <string name="cd_expand">Expand</string>

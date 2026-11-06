@@ -10,6 +10,7 @@
     <string name="hold_to_take_over">長押しで操作を引き継ぐ</string>
     <string name="give_back">AI に戻す</string>
     <string name="confirm_close">もう一度タップで閉じる</string>
+    <string name="idle_closing">操作がないため %1$d 秒後に閉じます</string>
     <string name="cd_stop">AI を停止</string>
     <string name="cd_close">サブ画面を閉じる</string>
     <string name="cd_expand">展開</string>

@@ -34,13 +34,16 @@ public class AgentServer {
     volatile boolean manualTakeover;
     volatile long lastHumanTouch;
     volatile long lastAgentAction;
+    volatile long lastActivity = System.currentTimeMillis();   // bumped by ANY request or touch; drives the idle auto-close
+    void activity() { lastActivity = System.currentTimeMillis(); }
+    volatile String closedReason = "";
     volatile String title = ""; volatile boolean stopped; volatile boolean closedByUser;
     ServerSocket ss; volatile boolean running;
 
     AgentServer(PipService s) { svc = s; }
 
     boolean humanActive() { return manualTakeover || System.currentTimeMillis() - lastHumanTouch < HUMAN_IDLE_MS; }
-    void humanTouched() { lastHumanTouch = System.currentTimeMillis(); }
+    void humanTouched() { lastHumanTouch = System.currentTimeMillis(); activity(); }
     void setTakeover(boolean on) { manualTakeover = on; if (!on) { lastHumanTouch = 0; stopped = false; } }
     /** User tapped "Stop now": all agent actions return 423 until "Hand back to AI" or /resume. */
     void stopByUser() { stopped = true; manualTakeover = false; title = ""; }
@@ -86,12 +89,13 @@ public class AgentServer {
     }
 
     void route(String path, Map<String, String> m, OutputStream out) throws Exception {
+        activity();                                  // any request (even /status polling) means someone is still using the display
         ScrcpyClient cl = svc.client;
         if (path.equals("/status")) {
             long fr = cl == null ? 0 : cl.frames;
             boolean ready = cl != null && cl.running && fr > 0;
             json(out, 200, "{\"ok\":true,\"connected\":" + (cl != null && cl.running) + ",\"ready\":" + ready + ",\"frames\":" + fr
-                    + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"closed\":" + closedByUser + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
+                    + ",\"port\":" + svc.port + ",\"version\":" + quote(versionName()) + ",\"versionCode\":" + versionCode() + ",\"stopped\":" + stopped + ",\"closed\":" + closedByUser + ",\"closedReason\":" + quote(closedReason) + ",\"idleMs\":" + (System.currentTimeMillis() - lastActivity) + ",\"idleLimitMs\":" + svc.idleLimitMs + ",\"width\":" + svc.vw + ",\"height\":" + svc.vh
                     + ",\"humanActive\":" + humanActive() + ",\"manualTakeover\":" + manualTakeover
                     + ",\"error\":" + quote(cl == null ? "no client" : cl.lastError) + "}");
             return;

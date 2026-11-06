@@ -35,6 +35,10 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
     static final String T = "SKILLED";
     static final int HEADER_DP = 30, RADIUS_DP = 20, SNAP_DP = 28, TAB_DP = 22;
     static final long HOLD_MS = 1000;          // long-press duration to take over while AI is acting
+    static final long IDLE_DEFAULT_MS = 10 * 60_000L;   // auto-close after this long with no agent request and no touch
+    static final long IDLE_WARN_MS = 60_000L;           // show a countdown in the title for the last minute
+    volatile long idleLimitMs = IDLE_DEFAULT_MS;        // 0 = never auto-close
+    volatile boolean closing;                           // set once closeAll() has started
     static final int BAR_DP = 30;              // unified height for all top-bar controls (title pill, round buttons, pills)
 
     WindowManager wm; WindowManager.LayoutParams lp;
@@ -56,7 +60,8 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
     @Override public int onStartCommand(Intent i, int f, int id) {
         dens = getResources().getDisplayMetrics().density;
         int wdp = 168;
-        if (i != null) { port = i.getIntExtra("port", port); winX = i.getIntExtra("x", winX); winY = i.getIntExtra("y", winY); wdp = i.getIntExtra("w", wdp); }
+        if (i != null) { port = i.getIntExtra("port", port); winX = i.getIntExtra("x", winX); winY = i.getIntExtra("y", winY); wdp = i.getIntExtra("w", wdp);
+            idleLimitMs = i.getIntExtra("idle", (int) (IDLE_DEFAULT_MS / 60000)) * 60000L; }   // --ei idle <minutes>; 0 disables
         if (sv != null) return START_STICKY;
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel("pip", getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW));
@@ -79,7 +84,12 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
 
     // ======================= UI construction =======================
     void buildUi() {
-        root = new FrameLayout(this);
+        root = new FrameLayout(this) {
+            @Override public boolean dispatchTouchEvent(MotionEvent e) {      // any touch on the window = someone is still here
+                if (agent != null) agent.activity();
+                return super.dispatchTouchEvent(e);
+            }
+        };
 
         card = new FrameLayout(this);
         card.setBackgroundColor(0xFF0B0B12);
@@ -221,7 +231,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         resumePill.setOnClickListener(v -> { agent.setTakeover(false); updateUi(); });
         closeBtn.setOnClickListener(v -> {
             long now = System.currentTimeMillis();
-            if (now - closeArmedAt < 3000) { closeAll(); return; }
+            if (now - closeArmedAt < 3000) { closeAll("user"); return; }
             closeArmedAt = now; armClose(true);
             ui.postDelayed(() -> { if (System.currentTimeMillis() - closeArmedAt >= 3000) armClose(false); }, 3050);
         });
@@ -437,6 +447,12 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         String text = getString(stopped ? R.string.state_stopped : held ? R.string.state_taken : st == 1 ? R.string.state_working : st == 2 ? R.string.state_human : R.string.state_idle);
         if (st == 1 && !held && !stopped && !t.isEmpty()) text = t;                      // AI acting: show the task title set by the agent
         if (System.currentTimeMillis() - closeArmedAt < 3000) text = getString(R.string.confirm_close);   // keep the prompt while close confirmation is pending
+        // idle watchdog: while the AI is acting the clock keeps resetting, so this only fires when nobody has used the display
+        if (idleLimitMs > 0) {
+            long left = idleLimitMs - (System.currentTimeMillis() - agent.lastActivity);
+            if (left <= 0) { closeAll("idle timeout"); return; }
+            if (left <= IDLE_WARN_MS && st == 0 && !held) text = getString(R.string.idle_closing, (int) ((left + 999) / 1000));
+        }
         if (!text.equals(lastLabel)) { lastLabel = text; label.setText(text); }
         ((GradientDrawable) dot.getBackground()).setColor(stopped ? 0xFFEF4444 : st == 2 ? 0xFF34D399 : st == 1 ? 0xFFB46BFF : 0xFF4F8CFF);
         boolean show = !hidden && docked == 0, ai = st == 1 && !held;
@@ -482,11 +498,15 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         if (armed) { label.setText(R.string.confirm_close); lastLabel = ""; }
     }
 
-    /** User tapped "Close display": notify the agent (closed=true in /status), then stop the service and remove the window.
-     *  The secondary display is destroyed when the scrcpy server disconnects; the skill's stop.sh cleans up the server. */
-    void closeAll() {
-        Log.i(T, "closed by user");
-        if (agent != null) agent.closedByUser = true;
+    /** Close the display: record why (closed=true + closedReason in /status), then stop the service and remove the window.
+     *  reason: "user" (tapped x) or "idle timeout". The secondary display is destroyed when the scrcpy server disconnects;
+     *  the skill's stop.sh cleans up the server. */
+    void closeAll(String reason) {
+        if (closing) return;                               // idempotent: updateUi() can run again before the service is stopped
+        closing = true;
+        Log.i(T, "closed: " + reason);
+        if (agent != null) { agent.closedReason = reason; agent.closedByUser = true; }
+        ui.removeCallbacks(refresh);                       // stop the watchdog so it can't fire twice
         if (client != null) { client.stop(); client = null; }
         // give the agent a moment to read closed=true, then stop the service; onDestroy() ends the process
         ui.postDelayed(() -> { stopForeground(true); stopSelf(); }, 600);

@@ -1,7 +1,7 @@
 ---
 name: android-vdisplay
 description: 在 Android 设备的 Minis 里，通过本机 adb 创建「副屏（虚拟显示器）」并以悬浮小窗显示在主屏，让 agent 在副屏里启动 App、截图、点击、滑动、输入、按键，人类可随时触摸小窗接管（自动互斥）。基于 scrcpy server（trusted 虚拟屏）+ 配套 APK。当用户提到「副屏」「虚拟屏」「画中画」「悬浮窗操作手机」「后台操作 App」「不影响主屏的自动化」「scrcpy 虚拟显示器」「agent 操作手机 App 并可接管」，或需要在 Android 本机上让 agent 操作 App 而不占用当前屏幕时使用。
-version: 0.9.0
+version: 0.10.0
 ---
 
 # android-vdisplay：本机副屏 + 悬浮小窗 + agent 操作
@@ -56,6 +56,7 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
 3. **人类接管与 423**：
    - 用户在小窗定点长按 1 秒或点右上角停止按钮进入接管，此时 agent 控制接口返回 **HTTP 423**（`human has control` / `stopped by user`）。
    - 收到 423 时**绝不可重试轰炸**，暂停并告知用户，等用户点「交还 AI」后再继续。详见 [references/takeover.md](references/takeover.md)。
+4. **闲置 10 分钟自动关闭**：连续 10 分钟既没有任何 agent 请求（包括 `status` 轮询），也没有人碰小窗，副屏会自行退出（最后一分钟标题显示倒计时）。退出后 `/status` 不再可达；如需继续，重新 `start.sh`。想改时长：`IDLE_MIN=30 sh $SK/start.sh`，`IDLE_MIN=0` 表示不自动关闭。用完仍应主动 `stop.sh`。
 
 ## 渐进式参考文档
 - [references/setup.md](references/setup.md)：本机无线调试配对与连通性指引

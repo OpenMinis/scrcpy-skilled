@@ -28,7 +28,7 @@ up)
   nohup setsid sh $0 bridge $SCID $PORT </dev/null >/dev/null 2>&1 &
   i=0; while [ $i -lt 200 ]; do grep -q listening $D/bridge.log 2>/dev/null && break; i=$((i+1)); sleep 0.05; done
   grep -q listening $D/bridge.log 2>/dev/null || { echo "FAIL bridge $(( $(now) - T0 ))"; exit 1; }
-  am start-foreground-service -n $PKG/.PipService --ei port $PORT --ei x ${5:-20} --ei y ${6:-300} --ei w ${7:-168} >/dev/null 2>&1
+  am start-foreground-service -n $PKG/.PipService --ei port $PORT --ei x ${5:-20} --ei y ${6:-300} --ei w ${7:-168} --ei idle ${IDLE_MIN:-10} >/dev/null 2>&1
   ID=""; i=0
   while [ $i -lt 200 ]; do                                   # 200 × 0.1 s = 20 s
     [ -z "$ID" ] && ID=$(grep -o 'New display: .*id=[0-9]*' $D/server.log 2>/dev/null | tail -1 | sed 's/.*id=//')

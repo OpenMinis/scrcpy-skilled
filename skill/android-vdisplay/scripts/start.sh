@@ -31,11 +31,11 @@ fi
 LOCSZ=$(wc -c < "$SK_DIR/scripts/device-run.sh" | tr -d ' ')
 if [ "$RUNSZ" != "$LOCSZ" ]; then adbx push "$SK_DIR/scripts/device-run.sh" $DEV/run.sh >/dev/null; adbx shell "chmod 755 $DEV/run.sh"; fi   # only when it changed
 lap preflight
-UP=$(T=60 adbx shell "BITRATE=$BR sh $DEV/run.sh up $SCID $SIZE $PORT $WX $WY $WW" | tr -d '\r' | tail -1)
+UP=$(T=60 adbx shell "BITRATE=$BR IDLE_MIN=${IDLE_MIN:-10} sh $DEV/run.sh up $SCID $SIZE $PORT $WX $WY $WW" | tr -d '\r' | tail -1)
 case "$UP" in
   OK*) ID=$(echo "$UP" | awk '{print $2}'); DEVMS=$(echo "$UP" | awk '{print $3}') ;;
   *)   # one retry: heavy load can make the server slow to come up
-       UP=$(T=60 adbx shell "BITRATE=$BR sh $DEV/run.sh up $SCID $SIZE $PORT $WX $WY $WW" | tr -d '\r' | tail -1)
+       UP=$(T=60 adbx shell "BITRATE=$BR IDLE_MIN=${IDLE_MIN:-10} sh $DEV/run.sh up $SCID $SIZE $PORT $WX $WY $WW" | tr -d '\r' | tail -1)
        case "$UP" in OK*) ID=$(echo "$UP" | awk '{print $2}'); DEVMS=$(echo "$UP" | awk '{print $3}') ;;
          FAIL\ server*) fail server "scrcpy server did not start listening (retried once): see server.log (usual causes: jar missing / version mismatch / Android restrictions)" ;;
          FAIL\ frames*) fail frames "virtual display created but the overlay received no video frames: check the overlay permission and that the phone is unlocked" ;;

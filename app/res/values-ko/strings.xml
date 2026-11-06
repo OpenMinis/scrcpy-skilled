@@ -10,6 +10,7 @@
     <string name="hold_to_take_over">길게 눌러 제어하기</string>
     <string name="give_back">AI에게 돌려주기</string>
     <string name="confirm_close">한 번 더 탭하면 닫힙니다</string>
+    <string name="idle_closing">사용이 없어 %1$d초 후 닫힙니다</string>
     <string name="cd_stop">AI 중지</string>
     <string name="cd_close">보조 화면 닫기</string>
     <string name="cd_expand">펼치기</string>

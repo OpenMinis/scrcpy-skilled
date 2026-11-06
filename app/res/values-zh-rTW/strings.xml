@@ -10,6 +10,7 @@
     <string name="hold_to_take_over">長按以接管</string>
     <string name="give_back">交還 AI</string>
     <string name="confirm_close">再點一次關閉副螢幕</string>
+    <string name="idle_closing">閒置，%1$d 秒後自動關閉</string>
     <string name="cd_stop">停止 AI</string>
     <string name="cd_close">關閉副螢幕</string>
     <string name="cd_expand">展開</string>
