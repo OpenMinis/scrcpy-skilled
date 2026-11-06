@@ -74,4 +74,4 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
 已验证：Pixel 4a (Android 13)、Pixel 6 (Android 17)；副屏控件树经 `ui` 可读（仅 4a 测过静默启用；自绘 UI 无节点需截图）；锁屏时不可用；视频走 H.264 本机 loopback；中文输入会覆盖手机系统剪贴板。
 
 ## 目录
-`scripts/`（start / stop / run-app / agent / install / common / device-run）、`assets/`（vdisplay.apk、scrcpy-server.jar 5.0.1、vdisplay-shell.jar）、`references/`。源码：https://github.com/OpenMinis/scrcpy-skilled
+`scripts/`（start / stop / run-app / agent / install / common / device-run）、`assets/`（skilled.apk、scrcpy-server.jar 5.0.1、skilled-shell.jar、VERSION）、`references/`。源码：https://github.com/OpenMinis/scrcpy-skilled
