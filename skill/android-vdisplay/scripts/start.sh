@@ -2,6 +2,8 @@
 # Start the secondary display (idempotent, self-healing): scrcpy server (new virtual display) → TCP bridge → floating window, then wait until truly ready (video frames arrived).
 # Usage: start.sh [WxH/dpi, default = physical main screen size and dpi] [window x] [window y] [window width dp]
 # On success prints one JSON line: {"ok":true,"display":N,"port":P,"w":..,"h":..}; on failure prints {"ok":false,"stage":"...","hint":"...","log":"..."} and exits non-zero.
+FRESH=${VDISPLAY_FRESH:-0}
+if [ "$1" = "--fresh" ]; then FRESH=1; shift; fi   # force a rebuild instead of reusing a healthy display
 . "$(dirname "$0")/common.sh"; ensure_adb || { echo "{\"ok\":false,\"stage\":\"adb\",\"hint\":\"设备未连接或未授权，见 references/setup.md\"}"; exit 3; }
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 T0=$(now_ms); TL=$T0; TIMING=""
@@ -13,9 +15,22 @@ else SIZE=$1; fi
  WX=${2:-20}; WY=${3:-300}; WW=${4:-168}; SCID=${VDISPLAY_SCID:-76646973}   # 0x76646973 = "vdis": a scid unlikely to collide with a user's own scrcpy (scrcpy picks random ones)
 PIX=$(echo "${SIZE%%/*}" | awk -Fx '{print $1*$2}'); BR=$((PIX>1500000?8000000:4000000))
 fail() { # fail <stage> <hint>
+  [ -z "$SAVED" ] && SAVED=$(save_logs)
   L=$(adbx shell "echo '--- server'; tail -4 $DEV/server.log; echo '--- bridge'; tail -4 $DEV/bridge.log" 2>/dev/null | tr '\n\r' '  ' | sed 's/"/\\"/g' | cut -c1-600)
   V=$(version_info 2>/dev/null)
-  echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\",\"version\":${V:-null},\"upgrade\":\"出错请先更新到最新版 skill/APK 再试\",\"log\":\"$L\"}"; exit 1; }
+  echo "{\"ok\":false,\"stage\":\"$1\",\"hint\":\"$2\",\"version\":${V:-null},\"upgrade\":\"出错请先更新到最新版 skill/APK 再试\",\"log\":\"$L\",\"savedLogs\":\"$SAVED\"}"; exit 1; }
+
+# 0. Reuse: a healthy display for OUR scid (app alive, server alive, /status ready, not closed, same size) is returned untouched.
+SAVED=""
+if [ "$FRESH" != 1 ] && [ -f "$STATE/display" ]; then
+  HL=$(adbx shell "sh $DEV/run.sh health $SCID" 2>/dev/null | tr -d '\r' | tail -1)
+  if echo "$HL" | grep -q "app=1 server=1" && echo "$HL" | grep -q '"ready":true' && echo "$HL" | grep -q '"closed":false' \
+     && echo "$HL" | grep -q "\"width\":${SIZE%%x*}," && echo "$HL" | grep -q "\"height\":$(echo "${SIZE%%/*}" | cut -dx -f2),"; then
+    RID=$(echo "$HL" | sed 's/.*id=\([0-9]*\) .*/\1/'); RPORT=$(echo "$HL" | sed 's/.*"port":\([0-9]*\).*/\1/')
+    [ -n "$RID" ] && [ -n "$RPORT" ] && { echo "{\"ok\":true,\"display\":$RID,\"port\":$RPORT,\"size\":\"$SIZE\",\"reused\":true,\"ms\":{\"total\":$(( $(now_ms) - T0 ))}}"; exit 0; }
+  fi
+  SAVED=$(save_logs)   # unhealthy display: keep the evidence before it is rebuilt
+fi
 
 # 1. Preflight in ONE device call: installed version, jar present, first free bridge port (27183+). Install/upgrade only if needed.
 WANT=$(cat "$SK_DIR/assets/VERSION" 2>/dev/null)
@@ -43,5 +58,16 @@ case "$UP" in
        esac ;;
 esac
 lap up
+# 4. "ready" means a decoded picture was rendered. If none arrives within ~3 s the stream is half connected (e.g. the decoder missed the
+#    config/keyframe): preserve logs, rebuild once (new session => new keyframe), and report stage "render" if that fails too.
+WR=$(T=20 adbx shell "sh $DEV/run.sh waitrender 3000" | tr -d '\r' | tail -1)
+case "$WR" in OK*) ;; *)
+  SAVED=$(save_logs)
+  UP=$(T=60 adbx shell "BITRATE=$BR IDLE_MIN=${IDLE_MIN:-10} sh $DEV/run.sh up $SCID $SIZE $PORT $WX $WY $WW" | tr -d '\r' | tail -1)
+  case "$UP" in OK*) ID=$(echo "$UP" | awk '{print $2}') ;; *) fail render "no picture rendered and the rebuild failed ($UP)" ;; esac
+  WR=$(T=20 adbx shell "sh $DEV/run.sh waitrender 3000" | tr -d '\r' | tail -1)
+  case "$WR" in OK*) HEALED=true ;; *) fail render "video packets arrive but the decoder renders nothing (even after one rebuild). Screenshots would be black. Check that the phone is unlocked, then stop.sh && start.sh; logs saved" ;; esac ;;
+esac
+lap render
 echo "$ID" > "$STATE/display"; echo "$PORT" > "$STATE/port"; echo "$SCID" > "$STATE/scid"
-echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\",\"ms\":{$TIMING,\"device\":${DEVMS:-0},\"total\":$(( $(now_ms) - T0 ))}}"
+echo "{\"ok\":true,\"display\":$ID,\"port\":$PORT,\"size\":\"$SIZE\",\"reused\":false,\"healed\":${HEALED:-false},\"ms\":{$TIMING,\"device\":${DEVMS:-0},\"total\":$(( $(now_ms) - T0 ))}}"

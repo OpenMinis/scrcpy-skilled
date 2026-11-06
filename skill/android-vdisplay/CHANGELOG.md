@@ -2,6 +2,14 @@
 
 > **遇到任何错误，请先更新到最新版再试一次**：重新安装最新的 android-vdisplay 包后运行 `start.sh`，脚本会自动比较设备上 APK 与 skill 自带版本，不一致则重装。查看版本：`sh scripts/agent.sh version`（返回 skill 版本、设备 APK 版本、是否一致）。APK 也可直接查询：`/status` 与 `/version` 接口含 `version`、`versionCode`、`protocol`、`sdk`、`device`。
 
+## 0.11.0
+- **`ready` now means a picture was rendered.** The app counts frames the decoder actually produced (`rendered`); `/status` has `ready = connected && rendered>0`. `frames` keeps its old meaning (packets received) and `dropped`/`decodeErrors` were added. Fixes "ready:true but every screenshot is black".
+- **Decoder no longer drops config/keyframes**: input-buffer timeouts are retried (up to ~500 ms) for config and key packets; if one still cannot be queued the app asks the server for a new keyframe (scrcpy RESET_VIDEO). Decoder exceptions are logged with their text. Output is drained on its own thread.
+- **Surface ordering**: a video session that arrives before the Surface exists defers decoder start; a re-created TextureView re-attaches the running client to the new Surface instead of tearing the connection down.
+- **start.sh self-heals**: after the display is up it waits up to 3 s for `rendered>0`; otherwise it saves logs and rebuilds once (`"healed":true`), then fails with `stage:"render"`.
+- **start.sh reuses a healthy display** (`"reused":true`, ~1 s, same display id). `--fresh` / `VDISPLAY_FRESH=1` forces a rebuild. Display ids only increase within a boot; that is normal.
+- **Evidence is preserved**: server.log, bridge.log and filtered logcat are copied to `~/.android-vdisplay/logs/<timestamp>/` (last 5) before an automatic restart, on failures, and by `stop.sh`.
+
 ## 0.10.0
 - Idle auto-close: after 10 minutes with no agent request (status polling counts) and no touch on the window, the second screen exits by itself. The last minute shows a countdown in the title. Change with `IDLE_MIN=<minutes>` on `start.sh`; `IDLE_MIN=0` disables it. `/status` now reports `idleMs`, `idleLimitMs`, `closed` and `closedReason` ("user" or "idle timeout").
 - Closing is idempotent (the watchdog could otherwise run it twice).

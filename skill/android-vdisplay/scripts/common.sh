@@ -67,3 +67,15 @@ version_info() {
   M=false; [ "$HAVE" = "$SK_VERSION" ] && M=true
   echo "{\"skill\":\"${SK_VERSION}\",\"apk\":\"${HAVE:-not-installed}\",\"match\":$M}"
 }
+
+# Preserve evidence before anything restarts the display: copies server.log, bridge.log and the app's logcat into
+# $STATE/logs/<timestamp>/ (last 5 sets kept). Prints the directory (empty if the device is unreachable).
+save_logs() {
+  _d="$STATE/logs/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$_d" || return 0
+  adbx shell "cat $DEV/server.log" > "$_d/server.log" 2>/dev/null
+  adbx shell "cat $DEV/bridge.log" > "$_d/bridge.log" 2>/dev/null
+  T=20 adbx shell "logcat -d -t 300" 2>/dev/null | grep -E "SKILLED|vdisplay|scrcpy|MediaCodec|ACodec|Codec2" > "$_d/logcat.txt"
+  adbx shell "dumpsys package $PKG | grep -m2 versionName" > "$_d/version.txt" 2>/dev/null
+  for _o in $(ls -1d "$STATE"/logs/*/ 2>/dev/null | sort -r | tail -n +6); do rm -rf "$_o"; done
+  echo "$_d"
+}

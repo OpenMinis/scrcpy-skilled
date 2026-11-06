@@ -33,7 +33,7 @@ up)
   while [ $i -lt 200 ]; do                                   # 200 × 0.1 s = 20 s
     [ -z "$ID" ] && ID=$(grep -o 'New display: .*id=[0-9]*' $D/server.log 2>/dev/null | tail -1 | sed 's/.*id=//')
     if [ -n "$ID" ]; then
-      printf 'GET /status HTTP/1.0\r\n\r\n' | nc -w1 127.0.0.1 28080 2>/dev/null | grep -q '"ready":true' && { echo "OK $ID $(( $(now) - T0 ))"; exit 0; }
+      printf 'GET /status HTTP/1.0\r\n\r\n' | nc -w1 127.0.0.1 28080 2>/dev/null | grep -q '"frames":[1-9]' && { echo "OK $ID $(( $(now) - T0 ))"; exit 0; }
     fi
     i=$((i+1)); sleep 0.1
   done
@@ -41,4 +41,21 @@ up)
     grep -q scrcpy_$SCID /proc/net/unix 2>/dev/null && echo "FAIL display $(( $(now) - T0 ))" || echo "FAIL server $(( $(now) - T0 ))"
   else echo "FAIL frames $(( $(now) - T0 ))"; fi
   exit 1 ;;
+waitrender)
+  # waitrender <max_ms>: poll /status until a picture was really rendered (ready:true == rendered>0). Prints "OK <ms>" or "FAIL <ms>".
+  now() { date +%s%3N; }; T0=$(now); MAX=${2:-3000}
+  while [ $(( $(now) - T0 )) -lt $MAX ]; do
+    printf 'GET /status HTTP/1.0\r\n\r\n' | nc -w1 127.0.0.1 28080 2>/dev/null | grep -q '"ready":true' && { echo "OK $(( $(now) - T0 ))"; exit 0; }
+    sleep 0.1
+  done
+  echo "FAIL $(( $(now) - T0 ))"; exit 1 ;;
+health)
+  # health <scid>: one-line summary used by start.sh to decide whether the running display can be reused.
+  # Prints "app=<0|1> server=<0|1> id=<displayId> status=<one-line /status JSON>"
+  D=/data/local/tmp/sc; SCID=$2
+  A=0; [ -n "$(ps -A -o PID,ARGS 2>/dev/null | awk '$2=="app.openminis.vdisplay"')" ] && A=1
+  S=0; ps -A -o PID,ARGS 2>/dev/null | grep -E "scrcpy\.Server .*scid=$SCID" | grep -vq grep && S=1
+  ID=$(grep -o 'New display: .*id=[0-9]*' $D/server.log 2>/dev/null | tail -1 | sed 's/.*id=//')
+  ST=$(printf 'GET /status HTTP/1.0\r\n\r\n' | nc -w1 127.0.0.1 28080 2>/dev/null | tr -d '\r\n' | sed 's/.*\({"ok".*}\).*/\1/')
+  echo "app=$A server=$S id=$ID status=$ST" ;;
 esac

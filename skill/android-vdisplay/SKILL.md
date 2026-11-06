@@ -1,7 +1,7 @@
 ---
 name: android-vdisplay
 description: 在 Android 设备的 Minis 里，通过本机 adb 创建「副屏（虚拟显示器）」并以悬浮小窗显示在主屏，让 agent 在副屏里启动 App、截图、点击、滑动、输入、按键，人类可随时触摸小窗接管（自动互斥）。基于 scrcpy server（trusted 虚拟屏）+ 配套 APK。当用户提到「副屏」「虚拟屏」「画中画」「悬浮窗操作手机」「后台操作 App」「不影响主屏的自动化」「scrcpy 虚拟显示器」「agent 操作手机 App 并可接管」，或需要在 Android 本机上让 agent 操作 App 而不占用当前屏幕时使用。
-version: 0.10.0
+version: 0.11.0
 ---
 
 # android-vdisplay：本机副屏 + 悬浮小窗 + agent 操作
@@ -26,17 +26,20 @@ sh $SK/stop.sh                         # 结束并退出
 Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python3`）；`adb devices` 能看到本机设备（无线调试，见 `references/setup.md`）。多设备时 `export SERIAL=<序列号>`；想自动重连 `export ADB_CONNECT=ip:port`。手机需亮屏解锁。
 
 ## start.sh 状态码
-- 成功：`{"ok":true,"display":N,"port":P}`。`ok:true` 表示**虚拟屏已建且视频帧到达**，可立即操作。
+- 成功：`{"ok":true,"display":N,"port":P,"reused":false}`。`ok:true` 表示**虚拟屏已建且画面已真正渲染**（`rendered>0`），可立即操作。
+- **复用**：若本 scid 的副屏仍健康（APK/server 存活、`ready:true`、未关闭、尺寸一致），`start.sh` 直接返回同一块屏（`"reused":true`，约 1 s，不动任何东西）。要强制重建：`start.sh --fresh` 或 `VDISPLAY_FRESH=1`。display ID 在一次开机内只增不减，这是 Android 正常行为，不是泄漏。
+- 首次 3 秒内没渲染出画面时，`start.sh` 会先保存日志再自动重建一次（`"healed":true`）；仍失败则 `stage:"render"`。日志存于 `~/.android-vdisplay/logs/<时间戳>/`（保留最近 5 份，`stop.sh` 也会保存），JSON 里的 `savedLogs` 给出路径。
 - 失败：返回 `stage`/`hint`/`log`。常用 stage：
   - `adb`：设备未连/未授权（按 setup.md 操作）
   - `server`/`bridge`：看 log；重试一次即可
   - `display`：多为手机锁屏或桥未连，解锁亮屏后重试
-  - `frames`：小窗未收到画面，确认悬浮窗权限后重试
+  - `frames`：小窗未收到视频包，确认悬浮窗权限后重试
+  - `render`：有视频包但解码器没渲染出画面（截图会是纯黑）；已自动重建一次仍失败，看 `savedLogs`
 
 ## 核心操作（`agent.sh`）
 | 命令 | 说明 |
 |---|---|
-| `status` | 以 `ready:true`（已收到视频帧）为准；含 `port`、`humanActive`、`error` |
+| `status` | `ready:true` = 解码器**已渲染出画面**（`rendered>0`）；`frames` 只是收到的包数；另有 `dropped`、`decodeErrors`、`port`、`humanActive`、`error` |
 | `shot [path] [png\|jpg\|webp] [q]` | 截图（默认 540 宽）；看图推荐 `jpg 70` 省 token |
 | `tap x y` / `swipe x1 y1 x2 y2 [ms]` | 像素坐标，与 `shot` 尺寸完全一致（默认 540 宽等比） |
 | `key <code>` | 4=BACK 3=HOME 66=ENTER 67=DEL |
@@ -57,6 +60,8 @@ Android 10+；Alpine 需 `adb curl python3`（`apk add android-tools curl python
    - 用户在小窗定点长按 1 秒或点右上角停止按钮进入接管，此时 agent 控制接口返回 **HTTP 423**（`human has control` / `stopped by user`）。
    - 收到 423 时**绝不可重试轰炸**，暂停并告知用户，等用户点「交还 AI」后再继续。详见 [references/takeover.md](references/takeover.md)。
 4. **闲置 10 分钟自动关闭**：连续 10 分钟既没有任何 agent 请求（包括 `status` 轮询），也没有人碰小窗，副屏会自行退出（最后一分钟标题显示倒计时）。退出后 `/status` 不再可达；如需继续，重新 `start.sh`。想改时长：`IDLE_MIN=30 sh $SK/start.sh`，`IDLE_MIN=0` 表示不自动关闭。用完仍应主动 `stop.sh`。
+
+5. **黑屏分诊**：截图纯黑（JPEG 体积每次一样且很小）或主屏小窗显示 "AI standby" 却无画面时，先截**主屏**确认，然后直接 `stop.sh && start.sh`，**不要反复重试截图**。0.11.0 起 `start.sh` 已自动检测并处理这种情况。
 
 ## 渐进式参考文档
 - [references/setup.md](references/setup.md)：本机无线调试配对与连通性指引

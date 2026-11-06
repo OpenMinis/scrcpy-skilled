@@ -4,7 +4,7 @@ APK 启动后在设备本机监听。电脑上用 `adb forward tcp:<本机端口
 
 | 路径 | 说明 |
 |---|---|
-| `/status` | `{connected,width,height,humanActive,manualTakeover}` |
+| `/status` | `{connected,ready,frames,rendered,dropped,decodeErrors,width,height,closed,closedReason,idleMs,humanActive,manualTakeover,...}`，见下方 ready 语义 |
 | `/screenshot` | PixelCopy 自小窗 SurfaceView。参数：`w=宽`、`scale=0.1~1`、`fmt=png\|jpg\|webp`、`q=30~100`（jpg/webp 的质量）。响应头 `X-Timing-Ms` 给出 capture/scale/encode 耗时 |
 | `/ping` | 空操作，用来量传输开销 |
 | `/tap?x=&y=` | 点击 |
@@ -27,3 +27,10 @@ APK 启动后在设备本机监听。电脑上用 `adb forward tcp:<本机端口
 - `/window?x=&y=&w=<dp>`：移动/缩放小窗；`/window?hide=1` 移出屏幕且不可触摸（副屏继续运行，agent 仍可操作与截图）；`hide=0` 恢复。
 - `/text?s=`：ASCII 逐字注入；含非 ASCII 走剪贴板粘贴（覆盖手机剪贴板）。
 - 以上接口监听设备内 127.0.0.1:28080；skill 的 `agent.sh` 通过 adb forward 调用。
+
+## `ready` / `frames` / `rendered`（0.11.0）
+- `frames`：从 scrcpy 视频流收到的**数据包**数（旧版 `ready` 的依据）。包到了不代表画面出来了：解码器可能没拿到 config/关键帧，或 Surface 失效，此时 `frames` 持续增长而截图是纯黑。
+- `rendered`：解码器**真正输出并以 render=true 释放**的帧数。
+- `ready = connected && rendered > 0`，即“已经画出过画面”。`start.sh` 以此为成功标准。
+- `dropped`：因解码器输入缓冲超时而丢弃的包数（config/关键帧会重试约 500 ms，仍失败则向 server 发 RESET_VIDEO 要新关键帧）。`decodeErrors`：解码异常次数（原因在 `error` 与 logcat 的 `SKILLED` 标签）。
+- Surface 销毁时 `rendered` 归零，新 Surface 绑定并出新画面后恢复。
