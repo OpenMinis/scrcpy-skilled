@@ -249,7 +249,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
 
         // ⑥ bottom-right resize handle: small, translucent, in the corner
         handle = new ResizeHandle(this);
-        FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dpi(22), dpi(22), Gravity.BOTTOM | Gravity.RIGHT);
+        FrameLayout.LayoutParams rl = new FrameLayout.LayoutParams(dpi(36), dpi(36), Gravity.BOTTOM | Gravity.RIGHT);   // bigger touch target; the glyph is drawn inset
         card.addView(handle, rl);
         final float[] rs = new float[2];
         handle.setOnTouchListener((v, e) -> {
@@ -701,14 +701,14 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         }
     }
 
-    /** Bottom-right resize handle: two thin translucent lines */
+    /** Bottom-right resize handle: two short diagonal lines, inset so they sit inside the rounded corner instead of touching the border */
     class ResizeHandle extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        ResizeHandle(android.content.Context c) { super(c); p.setColor(0x66FFFFFF); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(dp(1.4f)); p.setStrokeCap(Paint.Cap.ROUND); }
+        ResizeHandle(android.content.Context c) { super(c); p.setColor(0x99FFFFFF); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(dp(1.8f)); p.setStrokeCap(Paint.Cap.ROUND); }
         @Override protected void onDraw(Canvas c) {
-            float w = getWidth(), h = getHeight();
-            c.drawLine(w - dp(5), h - dp(10), w - dp(10), h - dp(5), p);
-            c.drawLine(w - dp(5), h - dp(15), w - dp(15), h - dp(5), p);
+            float w = getWidth(), h = getHeight(), m = dp(13);      // m = distance of the glyph from the card edge (corner radius is 20dp)
+            c.drawLine(w - m, h - m - dp(11), w - m - dp(11), h - m, p);
+            c.drawLine(w - m, h - m - dp(5), w - m - dp(5), h - m, p);
         }
     }
 
