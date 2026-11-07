@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs ON THE MAC (mini2), next to the phone's adb. One ssh session, N loops per stage, so the iSH→ssh hop
+# Runs ON THE MAC (the build Mac), next to the phone's adb. One ssh session, N loops per stage, so the iSH→ssh hop
 # is NOT part of any sample. Prints "stage<TAB>ms" lines; perf.py aggregates them.
 # Env: SERIAL, N, SK (skill dir), DISP (virtual display id), FP (adb-forwarded agent port)
 export PATH=/opt/homebrew/bin:$PATH

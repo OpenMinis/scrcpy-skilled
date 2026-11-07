@@ -13,7 +13,7 @@ cat > /tmp/foreign.sh <<EOF
 #!/system/bin/sh
 CLASSPATH=/data/local/tmp/sc/server.jar exec app_process / com.genymobile.scrcpy.Server 5.0.1 scid=$FOREIGN tunnel_forward=true control=false audio=false log_level=info
 EOF
-cat /tmp/foreign.sh | ssh -o BatchMode=yes ethan@mini2.wsen.me 'cat > /tmp/foreign.sh'
+cat /tmp/foreign.sh | ssh -o BatchMode=yes user@build-host.local 'cat > /tmp/foreign.sh'
 sh $R sh "adb -s \$SERIAL push /tmp/foreign.sh /data/local/tmp/sc/foreign.sh >/dev/null; adb -s \$SERIAL shell 'chmod 755 /data/local/tmp/sc/foreign.sh; nohup setsid /data/local/tmp/sc/foreign.sh </dev/null >/data/local/tmp/sc/foreign.log 2>&1 &'" >/dev/null
 sleep 3
 [ "$(sock)" = 1 ] && ok "foreign server is up before the test" || { bad "could not start the foreign server"; exit 1; }

@@ -3,7 +3,7 @@
 # Rule: ANY request resets the idle clock, including /status. So after the first check we stay silent and observe
 # the phone from the outside (logcat / ps / port) without calling the agent.
 SK=/tmp/android-vdisplay/scripts
-A="adb -s ${SERIAL:-10.1.10.11:5555}"
+A="adb -s ${SERIAL:-192.0.2.10:5555}"
 ok(){ echo "  PASS  $*"; }; bad(){ echo "  FAIL  $*"; FAILED=1; }
 field(){ python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))"; }
 

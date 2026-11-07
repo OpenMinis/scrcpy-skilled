@@ -1,5 +1,5 @@
 #!/bin/sh
-# Gesture regression test for the PiP overlay. Runs from Minis, drives the phone through mini2.
+# Gesture regression test for the PiP overlay. Runs from Minis, drives the phone through the build Mac.
 # Each case prints PASS/FAIL. Requires: scripts/remote.sh, /data/local/tmp/sc/pinch.jar on the phone.
 cd "$(dirname "$0")/../.."
 R=scripts/remote.sh

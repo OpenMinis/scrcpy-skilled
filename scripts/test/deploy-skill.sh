@@ -1,9 +1,9 @@
 #!/bin/bash
 # Deploy the android-vdisplay skill into the Minis app ON THE PHONE (Pixel 6), then verify it is visible.
-# Runs on the Mac (mini2). Needs: /tmp/android-vdisplay already synced (sh scripts/remote.sh skill) and the
-# debug build of Minis (run-as works). Usage: SERIAL=10.1.10.11:5555 bash /tmp/deploy-skill.sh
+# Runs on the Mac (the build Mac). Needs: /tmp/android-vdisplay already synced (sh scripts/remote.sh skill) and the
+# debug build of Minis (run-as works). Usage: SERIAL=192.0.2.10:5555 bash /tmp/deploy-skill.sh
 set -e
-A="adb -s ${SERIAL:-10.1.10.11:5555}"
+A="adb -s ${SERIAL:-192.0.2.10:5555}"
 SRC=/tmp/android-vdisplay
 [ -f "$SRC/SKILL.md" ] || { echo "ERR: $SRC not synced"; exit 1; }
 WANT=$(sed -n 's/^version: *//p' "$SRC/SKILL.md" | head -1)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 0.12.0 /ui tests (accessibility widget tree of the second screen). Run from the repo root; phone unlocked, SERIAL=pixel.wsen.me:5555.
+# 0.12.0 /ui tests (accessibility widget tree of the second screen). Run from the repo root; phone unlocked, SERIAL=192.0.2.10:5555.
 R=scripts/remote.sh; PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }

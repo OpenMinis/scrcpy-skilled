@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Send a prompt to the Minis app on the Android phone through its debug server (5321) and print what happened.
 
-Runs on the Mac (mini2): reaches the phone's loopback debug server through `adb forward` (no token needed on loopback).
+Runs on the Mac (the build Mac): reaches the phone's loopback debug server through `adb forward` (no token needed on loopback).
 usage: minis-ask.py "<prompt>" [--wait 240] [--session <id>]
 Prints the assistant's tool calls (exact command + output) and the final answer, so you can see what Minis really did.
 """
 import argparse, json, os, subprocess, sys, time, urllib.request
 
-SERIAL = os.environ.get("SERIAL", "10.1.10.11:5555")
+SERIAL = os.environ.get("SERIAL", "192.0.2.10:5555")
 LP = int(os.environ.get("LP", "25321"))
 ADB = "/opt/homebrew/bin/adb"
 

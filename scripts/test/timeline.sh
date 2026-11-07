@@ -2,7 +2,7 @@
 # Fine-grained timeline of one cold start, taken ON THE MAC with device-side timestamps (so ssh/adb hops don't blur the picture).
 # Every line: <ms since t0> <event>.  Run it N times: scripts/test/timeline.sh [N]
 export PATH=/opt/homebrew/bin:$PATH
-S="adb -s ${SERIAL:-10.1.10.11:5555}"; DEV=/data/local/tmp/sc; PKG=app.openminis.vdisplay
+S="adb -s ${SERIAL:-192.0.2.10:5555}"; DEV=/data/local/tmp/sc; PKG=app.openminis.vdisplay
 SK=/tmp/android-vdisplay
 N=${1:-3}
 dnow() { $S shell 'date +%s%3N' | tr -d '\r'; }           # device wall clock, ms

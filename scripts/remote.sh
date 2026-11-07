@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build on a remote Mac (default: mini2) and deploy to the test phone over the Mac's adb.
+# Build on a remote Mac (default: build-host.local) and deploy to the test phone over the Mac's adb.
 # Avoids the flaky adb server inside iSH. Usage:
 #   scripts/remote.sh build              sync source, build APK + shell jar on the Mac
 #   scripts/remote.sh install            build + install APK on the phone (+ grant overlay)
@@ -9,8 +9,8 @@
 #   scripts/remote.sh snap <out.png> [x1,y1,x2,y2]   screenshot the phone, pulled back here
 # Env: REMOTE (ssh target), SERIAL (adb device), SKILL_DIR (local skill path)
 set -e
-REMOTE=${REMOTE:-ethan@mini2.wsen.me}
-SERIAL=${SERIAL:-pixel.wsen.me:5555}
+REMOTE=${REMOTE:-user@build-host.local}
+SERIAL=${SERIAL:-192.0.2.10:5555}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SKILL_DIR=${SKILL_DIR:-/var/minis/skills/android-vdisplay}
 RDIR=/tmp/scrcpy-skilled

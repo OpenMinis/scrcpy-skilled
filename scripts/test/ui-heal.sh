@@ -1,7 +1,7 @@
 #!/bin/bash
 # agent.sh ui must heal a lost accessibility service by itself, safely. Runs on the Mac -> phone.
 export PATH=/opt/homebrew/bin:$PATH
-export SERIAL=${SERIAL:-pixel.wsen.me:5555} ADB_CONNECT=${ADB_CONNECT:-pixel.wsen.me:5555}
+export SERIAL=${SERIAL:-192.0.2.10:5555} ADB_CONNECT=${ADB_CONNECT:-192.0.2.10:5555}
 SK=/tmp/android-vdisplay/scripts; A="adb -s $SERIAL"
 SVC=app.openminis.vdisplay/app.openminis.vdisplay.UiService
 STATE=${SKILLED_STATE:-$HOME/.android-vdisplay}

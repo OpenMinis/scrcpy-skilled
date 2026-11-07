@@ -2,7 +2,7 @@
 # Is `uiautomator dump --display N` really per-display? Run on the Mac. Needs a virtual display with Calculator on it
 # and a DIFFERENT app on the main screen so the two can be told apart.
 export PATH=/opt/homebrew/bin:$PATH
-S="adb -s ${SERIAL:-10.1.10.11:5555}"
+S="adb -s ${SERIAL:-192.0.2.10:5555}"
 D=$($S shell "grep -o 'New display: .*id=[0-9]*' /data/local/tmp/sc/server.log | tail -1 | sed 's/.*id=//'" | tr -d '\r ')
 echo "virtual display id: $D"
 count() {  # count <label> <dump args...>

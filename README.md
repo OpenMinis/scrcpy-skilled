@@ -52,7 +52,7 @@ scripts/build-scrcpy-server.sh   # builds scrcpy-server.jar from the submodule (
 scripts/build-apk.sh             # builds skilled.apk and skilled-shell.jar
 ```
 
-`*.apk` is git-ignored, so `skilled.apk` is not tracked here; the released skill in MinisSkills includes it. `scripts/remote.sh` and `scripts/test/*` default to the maintainers' own test hosts — override `REMOTE` / `SERIAL` for your setup.
+`*.apk` is git-ignored, so `skilled.apk` is not tracked here; the released skill in MinisSkills includes it. `scripts/remote.sh` and `scripts/test/*` default to placeholder hosts — set `REMOTE` (ssh target) and `SERIAL` (adb device, `ip:port`) for your own setup; the defaults are placeholders.
 
 ## License
 

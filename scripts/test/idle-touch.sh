@@ -3,7 +3,7 @@
 # Runs on the Mac. IDLE_MIN=1. We touch at +35s and expect the display to still be alive at +75s (it would
 # have closed at +60s without the touch), then to close ~60s after the touch.
 SK=/tmp/android-vdisplay/scripts
-A="adb -s ${SERIAL:-10.1.10.11:5555}"
+A="adb -s ${SERIAL:-192.0.2.10:5555}"
 ok(){ echo "  PASS  $*"; }; bad(){ echo "  FAIL  $*"; FAILED=1; }
 
 IDLE_MIN=1 sh $SK/start.sh >/dev/null

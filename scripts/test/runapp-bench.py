@@ -2,9 +2,9 @@
 """run-app.sh latency + failure paths. Runs on the Mac next to the phone (SERIAL env)."""
 import os, subprocess, time
 
-env = dict(os.environ, ADB_CONNECT=os.environ.get("SERIAL", "10.1.10.11:5555"),
+env = dict(os.environ, ADB_CONNECT=os.environ.get("SERIAL", "192.0.2.10:5555"),
            PATH="/opt/homebrew/bin:" + os.environ["PATH"])
-env.setdefault("SERIAL", "10.1.10.11:5555")
+env.setdefault("SERIAL", "192.0.2.10:5555")
 SK = os.environ.get("SK", "/tmp/android-vdisplay/scripts")
 CALC = "com.google.android.calculator"
 
