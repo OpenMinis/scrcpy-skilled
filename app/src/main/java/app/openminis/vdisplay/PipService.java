@@ -407,11 +407,37 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         docked = 0; animateTo();
     }
 
+    ValueAnimator dockAnim;
+
+    /** Slide the window to its docked / undocked position like a drawer: the card stays visible and the pull tab fades in on the card's
+     *  outer edge while it travels, so nothing pops in mid-screen and no empty gap shows behind the tab. The card is only hidden once it
+     *  has fully left the screen (docking); when undocking the tab fades out as the card slides back in. */
     void animateTo() {
         if (lp == null) return;
-        applyDockedUi();
-        ValueAnimator a = ValueAnimator.ofInt(lp.x, targetX()); a.setDuration(220);
-        a.addUpdateListener(v -> { lp.x = (Integer) v.getAnimatedValue(); try { wm.updateViewLayout(root, lp); } catch (Throwable e) {} });
+        if (dockAnim != null) dockAnim.cancel();
+        final boolean toDock = docked != 0;
+        if (arrow != null) {                                   // configure the tab for this edge, keep both pieces visible while moving
+            arrow.dir = docked != 0 ? docked : arrow.dir;
+            FrameLayout.LayoutParams al = (FrameLayout.LayoutParams) arrow.getLayoutParams();
+            al.gravity = Gravity.CENTER_VERTICAL | (arrow.dir == -1 ? Gravity.RIGHT : Gravity.LEFT);
+            arrow.setLayoutParams(al); arrow.invalidate();
+            card.setVisibility(View.VISIBLE); arrow.setVisibility(View.VISIBLE);
+            arrow.setAlpha(toDock ? arrow.getAlpha() : 1f);
+        }
+        final int from = lp.x, to = targetX();
+        ValueAnimator a = ValueAnimator.ofFloat(0f, 1f); dockAnim = a; a.setDuration(260);
+        a.setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f));
+        a.addUpdateListener(v -> {
+            float f = (Float) v.getAnimatedValue();
+            lp.x = from + Math.round((to - from) * f);
+            if (arrow != null) arrow.setAlpha(toDock ? Math.min(1f, f * 2.2f) : 1f - f);
+            try { wm.updateViewLayout(root, lp); } catch (Throwable e) {}
+        });
+        a.addListener(new android.animation.AnimatorListenerAdapter() {
+            boolean cancelled;
+            @Override public void onAnimationCancel(android.animation.Animator an) { cancelled = true; }
+            @Override public void onAnimationEnd(android.animation.Animator an) { if (!cancelled) { lp.x = to; applyDockedUi(); try { wm.updateViewLayout(root, lp); } catch (Throwable e) {} } }
+        });
         a.start();
         updateUi();
     }
@@ -421,7 +447,7 @@ public class PipService extends Service implements TextureView.SurfaceTextureLis
         boolean d = docked != 0;
         card.setVisibility(d ? View.INVISIBLE : View.VISIBLE);
         arrow.setVisibility(d ? View.VISIBLE : View.GONE);
-        arrow.dir = docked;
+        arrow.dir = docked; arrow.setAlpha(1f);
         FrameLayout.LayoutParams al = (FrameLayout.LayoutParams) arrow.getLayoutParams();
         al.gravity = Gravity.CENTER_VERTICAL | (docked == -1 ? Gravity.RIGHT : Gravity.LEFT);
         arrow.setLayoutParams(al); arrow.invalidate();
